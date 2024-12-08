@@ -1,13 +1,9 @@
-
-
 from rizana.api.models.item import BaseItem, CategoryBase
 
 
 class ItemCreate(BaseItem):
-    username: str
-    email: str
-    emirate_id: str
-    password: str
+    images: list[str]
+    categories: list[str]
 
 
 class CategoryCreate(CategoryBase): ...

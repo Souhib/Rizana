@@ -1,5 +1,7 @@
 from datetime import datetime
+from decimal import Decimal
 from enum import Enum
+from uuid import UUID
 
 from sqlmodel import Field
 
@@ -12,10 +14,13 @@ class OrderStatus(str, Enum):
     CANCELED = "canceled"
 
 
+class CharityContributionBase(DBModel):
+    amount: Decimal = Field(default=0)
+    is_rounded: bool = Field(default=False)
+
+
 class OrderBase(DBModel):
-    item_id: int = Field(foreign_key="item.id")
-    total_price: float
-    created_at: datetime = Field(default_factory=datetime.now)
+    item_id: UUID = Field(foreign_key="item.id")
     status: OrderStatus = Field(default=OrderStatus.PENDING)
 
 

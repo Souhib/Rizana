@@ -1,6 +1,5 @@
 from datetime import datetime
 from enum import Enum
-from uuid import UUID
 
 from sqlmodel import Field
 
@@ -10,9 +9,7 @@ from rizana.api.models.shared import DBModel
 class BaseItem(DBModel):
     title: str = Field(max_length=100)
     description: str | None = Field(default=None, max_length=1000)
-    price: float
-    image_url: str | None = Field(default=None, max_length=255)
-    category_id: UUID = Field(foreign_key="category.id")
+    price: float = Field(ge=0)
 
 
 class CategoryBase(DBModel):
@@ -35,7 +32,7 @@ class ItemCondition(str, Enum):
 
 
 class ItemConditionBase(DBModel):
-    name: ItemCondition = Field(unique=True)
+    name: ItemCondition
     description: str | None = Field(default=None, max_length=255)
     wear_and_tear: str | None = Field(default=None, max_length=255)
     original_packaging: bool = Field(default=False)

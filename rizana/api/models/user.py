@@ -5,7 +5,7 @@ from typing import Any, Self
 
 import pycountry
 import pydantic
-from pydantic import EmailStr, ValidationError, model_validator
+from pydantic import EmailStr, model_validator
 from sqlalchemy import JSON, Column
 from sqlmodel import AutoString, Field
 
@@ -43,19 +43,33 @@ class NotificationBase(DBModel):
 class UserBase(DBModel):
     """
     Base model for User.
+
+    Attributes:
+        username (str): The username of the user.
+        email (EmailStr): The email of the user.
+        emirate_id (str | None): The emirate ID of the user.
+        country (str | None): The country of the user, default is "ARE".
     """
+
     username: str = Field(default=None, index=True, min_length=3)
     email: EmailStr = Field(unique=True, index=True, sa_type=AutoString)
-    emirate_id: str | None = Field(default=None)
+    emirate_id: str | None = Field(default=None, index=True, unique=True)
     country: str | None = "ARE"
 
     @pydantic.field_validator("country")
     @classmethod
-    def country_code(cls, v: str):
+    def validate_country_code(cls, v: str) -> str:
         """
         Validates the country code.
-        :param v: The value to be validated
-        :return: The country code
+
+        Args:
+            v (str): The value to be validated.
+
+        Returns:
+            str: The validated country code.
+
+        Raises:
+            ValueError: If the country code is not valid.
         """
         if v and pycountry.countries.get(alpha_3=v.upper()) is None:
             raise ValueError("Country must be a valid 3-letter country code")
@@ -64,7 +78,13 @@ class UserBase(DBModel):
     @model_validator(mode="after")
     def validate_emirate_id(self) -> Self:
         """
-        Validates that emirate_id is provided when country is ARE.
+        Validates that emirate_id is provided when country is ARE and checks its format.
+
+        Returns:
+            Self: The validated instance.
+
+        Raises:
+            ValueError: If emirate_id is required but not provided, or if its format is incorrect.
         """
         if self.country == "ARE" and self.emirate_id is None:
             raise ValueError("Emirate ID is required for users from UAE")
