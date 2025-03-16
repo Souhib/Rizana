@@ -12,6 +12,7 @@ from rizana.api.routes.payment import router as payment_router
 from rizana.api.routes.user import router as user_router
 from rizana.api.routes.wishlist import router as wishlist_router
 from rizana.api.schemas.error import BaseError
+from rizana.database import create_app_engine, create_db_and_tables
 
 
 def create_app(lifespan) -> FastAPI:
@@ -82,6 +83,11 @@ def create_app(lifespan) -> FastAPI:
                 "status_code": exc.status_code,
             },
         )
+
+    @app.on_event("startup")
+    async def on_startup():
+        engine = await create_app_engine()
+        await create_db_and_tables(engine)
 
     app.openapi = enrich_openapi(app, target_module=["main"])
 

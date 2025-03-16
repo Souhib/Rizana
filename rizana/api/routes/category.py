@@ -4,8 +4,7 @@ from starlette.status import HTTP_201_CREATED, HTTP_204_NO_CONTENT
 from rizana.api.controllers.item import ItemController
 from rizana.api.models.table import User
 from rizana.api.schemas.item import CategoryCreate
-from rizana.dependencies import (get_current_active_admin_user,
-                                 get_item_controller)
+from rizana.dependencies import get_current_active_admin_user, get_item_controller
 
 router = APIRouter(
     prefix="/categories",

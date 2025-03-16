@@ -6,9 +6,12 @@ from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from rizana.api.models.table import Item, User, Wish
-from rizana.api.schemas.error import (ItemAlreadyInWishList, ItemDoesNotExist,
-                                      UserCantAddHisOwnItemToWishlist,
-                                      WishDoesNotExists)
+from rizana.api.schemas.error import (
+    ItemAlreadyInWishList,
+    ItemDoesNotExist,
+    UserCantAddHisOwnItemToWishlist,
+    WishDoesNotExists,
+)
 from rizana.api.schemas.wishlist import WishCreate
 
 

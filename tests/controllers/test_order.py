@@ -12,11 +12,13 @@ from rizana.api.controllers.user import UserController
 from rizana.api.models.order import OrderStatus
 from rizana.api.models.payment import CardType
 from rizana.api.models.table import Order
-from rizana.api.schemas.error import (ItemDoesNotExist, OrderNotFoundError,
-                                      UserNotAllowed)
+from rizana.api.schemas.error import (
+    ItemDoesNotExist,
+    OrderNotFoundError,
+    UserNotAllowed,
+)
 from rizana.api.schemas.order import OrderCreate
-from rizana.api.schemas.payment import (BillingAddressCreate,
-                                        PaymentMethodCreate)
+from rizana.api.schemas.payment import BillingAddressCreate, PaymentMethodCreate
 from rizana.api.schemas.user import UserQuery
 from tests.conftest import create_item, create_user
 

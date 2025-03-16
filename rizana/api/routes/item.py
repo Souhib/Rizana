@@ -35,7 +35,8 @@ async def delete_item(
 
 @router.get("/")
 async def get_item(
+    item_id: UUID,
     item_controller: ItemController = Depends(get_item_controller),
     current_user: User = Depends(get_current_active_user),
 ):
-    return await item_controller.get_item(current_user.id)
+    return await item_controller.get_item(item_id, current_user.id)

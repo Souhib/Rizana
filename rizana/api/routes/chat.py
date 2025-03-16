@@ -5,9 +5,13 @@ from starlette.status import HTTP_200_OK, HTTP_201_CREATED
 
 from rizana.api.controllers.chat import ChatController
 from rizana.api.models.table import User
-from rizana.api.schemas.chat import (ConversationResponse, MessageCreate,
-                                     MessageResponse, ProposalCreate,
-                                     ProposalResponse)
+from rizana.api.schemas.chat import (
+    ConversationResponse,
+    MessageCreate,
+    MessageResponse,
+    ProposalCreate,
+    ProposalResponse,
+)
 from rizana.dependencies import get_chat_controller, get_current_active_user
 
 router = APIRouter(

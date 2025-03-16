@@ -5,12 +5,16 @@ from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from rizana.api.models.table import Category, Item, ItemCategoryLink, ItemImage
-from rizana.api.schemas.error import (CategoryAlreadyExist,
-                                      CategoryDoesNotExist, ItemDoesNotExist,
-                                      ItemImageDoesNotExist,
-                                      ItemsDependsOnCategory,
-                                      NoLinkBetweenCategoryAndItem,
-                                      UserNotAllowed, UserNotFoundError)
+from rizana.api.schemas.error import (
+    CategoryAlreadyExist,
+    CategoryDoesNotExist,
+    ItemDoesNotExist,
+    ItemImageDoesNotExist,
+    ItemsDependsOnCategory,
+    NoLinkBetweenCategoryAndItem,
+    UserNotAllowed,
+    UserNotFoundError,
+)
 from rizana.api.schemas.item import CategoryCreate, ItemCreate
 
 
@@ -42,7 +46,7 @@ class ItemController:
         try:
             new_item = Item(
                 **item_create.model_dump(exclude=("images", "categories")),
-                user_id=user_id
+                user_id=user_id,
             )
             self.db.add(new_item)
             await self.db.commit()
@@ -64,19 +68,22 @@ class ItemController:
             await self.db.rollback()
             raise e
 
-    async def get_item(self, item_id: UUID) -> Item:
+    async def get_item(self, item_id: UUID, user_id: UUID) -> Item:
         """
         Retrieves an item by its ID.
 
         Args:
             item_id (UUID): The ID of the item to retrieve.
+            user_id (UUID): The ID of the user attempting to retrieve the item.
 
         Returns:
             Item: The item object if found, otherwise raises ItemDoesNotExist.
         """
-        item = await self.db.get(Item, item_id)
+        item = (await self.db.exec(select(Item).where(Item.id == item_id))).first()
         if not item:
             raise ItemDoesNotExist(item_id=item_id)
+        if item.user_id != user_id:
+            raise UserNotAllowed(uuid=user_id, action="Get an item that is not yours")
         return item
 
     async def get_user_items(self, user_id: UUID):

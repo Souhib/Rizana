@@ -6,9 +6,13 @@ from faker import Faker
 from rizana.api.controllers.item import ItemController
 from rizana.api.controllers.user import UserController
 from rizana.api.models.table import Category, Item
-from rizana.api.schemas.error import (CategoryAlreadyExist,
-                                      CategoryDoesNotExist, ItemDoesNotExist,
-                                      ItemsDependsOnCategory, UserNotAllowed)
+from rizana.api.schemas.error import (
+    CategoryAlreadyExist,
+    CategoryDoesNotExist,
+    ItemDoesNotExist,
+    ItemsDependsOnCategory,
+    UserNotAllowed,
+)
 from rizana.api.schemas.item import CategoryCreate, ItemCreate
 from tests.conftest import create_category, create_user
 

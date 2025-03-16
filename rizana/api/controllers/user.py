@@ -7,6 +7,7 @@ from argon2 import PasswordHasher
 from argon2.exceptions import InvalidHashError, VerifyMismatchError
 from fastapi.security import OAuth2PasswordRequestForm
 from jose import JWTError, jwt
+from loguru import logger
 from sqlalchemy.exc import IntegrityError, NoResultFound
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -41,6 +42,7 @@ class UserController:
         jwt_secret_key: str,
         jwt_encryption_algorithm: str,
         resend_api_key: str,
+        env: str,
     ):
         """
         Initializes the UserController with a database session, JWT secret key, and JWT encryption algorithm.
@@ -54,6 +56,7 @@ class UserController:
         self.JWT_SECRET_KEY = jwt_secret_key
         self.JWT_ENCRYPTION_ALGORITHM = jwt_encryption_algorithm
         self.ACCESS_TOKEN_EXPIRE_MINUTES = 30
+        self.env = env
         self.ph = PasswordHasher()
         self._set_resend_api_key(resend_api_key)
 
@@ -124,7 +127,7 @@ class UserController:
                 await self.db.exec(
                     select(User)
                     .where(User.id == user_id)
-                    .where(User.is_active == False)
+                    .where(User.is_active is False)
                 )
             ).one()
         except NoResultFound:
@@ -158,7 +161,14 @@ class UserController:
             await self.db.commit()
             await self.db.refresh(email_activation)
 
-            await self._send_activation_email(new_user, email_activation.activation_key)
+            if self.env != "dev":
+                # With loguru logger print a message to explain that we're in dev mode so we're not gonna send email
+                logger.info(
+                    f"We're in dev mode so we're not gonna send email, but here is the activation key: {email_activation.activation_key}"
+                )
+                await self._send_activation_email(
+                    new_user, email_activation.activation_key
+                )
             return new_user
         except IntegrityError as e:
             print(e)
@@ -375,7 +385,7 @@ class UserController:
             await self.db.exec(
                 select(EmailActivation)
                 .where(EmailActivation.user_id == user_id)
-                .where(EmailActivation.is_activated == False)
+                .where(EmailActivation.is_activated is False)
             )
         ).one()
         if email_activation.created_at < datetime.now() - timedelta(minutes=30):
@@ -418,3 +428,22 @@ class UserController:
         user.is_active = True
         await self.db.commit()
         return user
+
+    async def get_user_activation(self, user_id: UUID) -> EmailActivation | None:
+        """
+        Retrieves the latest email activation record for a user.
+
+        Args:
+            user_id (UUID): The unique identifier of the user.
+
+        Returns:
+            EmailActivation | None: The latest email activation record for the user, or None if not found.
+        """
+        return (
+            await self.db.exec(
+                select(EmailActivation)
+                .where(EmailActivation.user_id == user_id)
+                .where(EmailActivation.is_activated is False)
+                .order_by(EmailActivation.created_at.desc())
+            )
+        ).first()

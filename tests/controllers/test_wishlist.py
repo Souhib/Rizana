@@ -7,9 +7,12 @@ from rizana.api.controllers.item import ItemController
 from rizana.api.controllers.user import UserController
 from rizana.api.controllers.wishlist import WishlistController
 from rizana.api.models.table import Item, Wish
-from rizana.api.schemas.error import (ItemAlreadyInWishList, ItemDoesNotExist,
-                                      UserCantAddHisOwnItemToWishlist,
-                                      WishDoesNotExists)
+from rizana.api.schemas.error import (
+    ItemAlreadyInWishList,
+    ItemDoesNotExist,
+    UserCantAddHisOwnItemToWishlist,
+    WishDoesNotExists,
+)
 from rizana.api.schemas.wishlist import WishCreate
 from tests.conftest import create_item, create_user
 

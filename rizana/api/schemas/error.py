@@ -49,11 +49,7 @@ class UserNotFoundError(BaseError):
         identifier_type = (
             "id"
             if user_id
-            else "email"
-            if email
-            else "emirate ID"
-            if emirate_id
-            else "username"
+            else "email" if email else "emirate ID" if emirate_id else "username"
         )
 
         self.message = "We couldn't find a user that satisfies the provided criteria. Please check your input and try again."
@@ -401,6 +397,18 @@ class PaymentMethodDoesNotExist(BaseError):
         )
 
 
+class BillingAddressCreationError(BaseError):
+    """Raised when billing address creation fails."""
+
+    def __init__(self, user_id: UUID, status_code: int = 400):
+        logger.warning(f"Could not create a billing address for user {user_id}")
+        super().__init__(
+            name="BillingAddressCreationError",
+            message="We couldn't create a billing address for you. Please try again.",
+            status_code=status_code,
+        )
+
+
 class ItemAlreadyInWishList(BaseError):
     """
     Exception raised when an item is already in the user's wishlist.
@@ -592,11 +600,7 @@ class UserIsInactive(BaseError):
         identifier_type = (
             "id"
             if user_id
-            else "username"
-            if username
-            else "email"
-            if email
-            else "emirate ID"
+            else "username" if username else "email" if email else "emirate ID"
         )
         logger.warning(f"User with {identifier_type} {identifier} is inactive")
         super().__init__(
@@ -701,5 +705,147 @@ class AccountAlreadyActivated(BaseError):
         super().__init__(
             name=name,
             message="Your account is already activated",
+            status_code=status_code,
+        )
+
+
+class StripeError(BaseError):
+    def __init__(self, message: str, status_code: int = 400):
+        logger.warning(f"Stripe error: {message}")
+        super().__init__(
+            name="StripeError",
+            message=message,
+            status_code=status_code,
+        )
+
+
+class PaymentIntentCreationError(BaseError):
+    """
+    Exception raised when creating a payment intent fails.
+
+    Args:
+        order_id (UUID): The ID of the order for which payment intent creation failed.
+        error_message (str): The specific error message from Stripe.
+        status_code (int, optional): The HTTP status code for the error. Defaults to 400.
+    """
+
+    def __init__(
+        self,
+        order_id: UUID,
+        error_message: str,
+        status_code: int = 400,
+    ):
+        logger.warning(
+            f"Failed to create payment intent for order {order_id}: {error_message}"
+        )
+        super().__init__(
+            name="PaymentIntentCreationError",
+            message="Failed to create payment intent. Please try again later.",
+            status_code=status_code,
+        )
+
+
+class PaymentIntentConfirmationError(BaseError):
+    """
+    Exception raised when confirming a payment intent fails.
+
+    Args:
+        payment_intent_id (str): The ID of the payment intent that failed confirmation.
+        error_message (str): The specific error message from Stripe.
+        status_code (int, optional): The HTTP status code for the error. Defaults to 400.
+    """
+
+    def __init__(
+        self,
+        payment_intent_id: str,
+        error_message: str,
+        status_code: int = 400,
+    ):
+        logger.warning(
+            f"Failed to confirm payment intent {payment_intent_id}: {error_message}"
+        )
+        super().__init__(
+            name="PaymentIntentConfirmationError",
+            message="Failed to confirm payment. Please try again.",
+            status_code=status_code,
+        )
+
+
+class InvalidPaymentAmountError(BaseError):
+    """
+    Exception raised when the payment amount is invalid.
+
+    Args:
+        amount: The invalid amount that was provided.
+        currency (str): The currency of the payment.
+        status_code (int, optional): The HTTP status code for the error. Defaults to 400.
+    """
+
+    def __init__(
+        self,
+        amount: float,
+        currency: str,
+        status_code: int = 400,
+    ):
+        logger.warning(f"Invalid payment amount: {amount} {currency}")
+        super().__init__(
+            name="InvalidPaymentAmountError",
+            message="The payment amount is invalid.",
+            status_code=status_code,
+        )
+
+
+class PaymentMethodRequiredError(BaseError):
+    """
+    Exception raised when no payment method is provided for the payment.
+
+    Args:
+        order_id (UUID): The ID of the order missing payment method.
+        status_code (int, optional): The HTTP status code for the error. Defaults to 400.
+    """
+
+    def __init__(
+        self,
+        order_id: UUID,
+        status_code: int = 400,
+    ):
+        logger.warning(f"No payment method provided for order {order_id}")
+        super().__init__(
+            name="PaymentMethodRequiredError",
+            message="A payment method is required to process this payment.",
+            status_code=status_code,
+        )
+
+
+class PayoutError(BaseError):
+    """
+    Exception raised when a payout operation fails.
+
+    This exception is used when there's an error creating or processing a payout
+    to a seller's bank account, whether through Stripe, Wise, or other payment providers.
+
+    Args:
+        message (str): Detailed error message explaining what went wrong
+        status_code (int, optional): The HTTP status code for the error. Defaults to 400.
+        provider (str, optional): The payment provider where the error occurred (e.g., 'stripe', 'wise')
+        provider_error_code (str | None, optional): The original error code from the provider
+    """
+
+    def __init__(
+        self,
+        message: str,
+        status_code: int = 400,
+        provider: str = "unknown",
+        provider_error_code: str | None = None,
+    ):
+        error_context = f" Provider: {provider}"
+        if provider_error_code:
+            error_context += f", Error code: {provider_error_code}"
+
+        logger.warning(f"Payout failed - {message}.{error_context}")
+
+        super().__init__(
+            name="PayoutError",
+            message=f"Failed to process payout: {message}",
             status_code=status_code,
         )

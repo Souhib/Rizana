@@ -1,5 +1,4 @@
 from datetime import datetime
-from decimal import Decimal
 from enum import Enum
 from uuid import UUID
 
@@ -15,7 +14,7 @@ class OrderStatus(str, Enum):
 
 
 class CharityContributionBase(DBModel):
-    amount: Decimal = Field(default=0)
+    amount: float = Field(default=0)
     is_rounded: bool = Field(default=False)
 
 

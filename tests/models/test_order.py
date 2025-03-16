@@ -7,8 +7,7 @@ from faker import Faker
 from rizana.api.models.order import OrderStatus
 from rizana.api.models.payment import CardType
 from rizana.api.schemas.order import OrderCreate
-from rizana.api.schemas.payment import (BillingAddressCreate,
-                                        PaymentMethodCreate)
+from rizana.api.schemas.payment import BillingAddressCreate, PaymentMethodCreate
 
 
 @pytest.mark.asyncio

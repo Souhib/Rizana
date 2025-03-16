@@ -17,7 +17,8 @@ from rizana.api.models.report import ReportBase
 from rizana.api.models.review import ReviewBase
 from rizana.api.models.shared import DBModel, generate_activation_key
 from rizana.api.models.shipping import ShippingBase
-from rizana.api.models.transaction import TransactionHistoryBase
+
+# from rizana.api.models.transaction import TransactionHistoryBase
 from rizana.api.models.user import (
     AddressBase,
     NotificationBase,
@@ -188,6 +189,9 @@ class User(UserBase, table=True):
     billing_addresses: list["BillingAddress"] = Relationship(
         back_populates="user", sa_relationship_kwargs={"lazy": "selectin"}
     )
+    payments: list["Payment"] = Relationship(
+        back_populates="user", sa_relationship_kwargs={"lazy": "selectin"}
+    )
     cancellations: list["OrderCancellation"] = Relationship(
         back_populates="user", sa_relationship_kwargs={"lazy": "selectin"}
     )
@@ -198,9 +202,12 @@ class Order(OrderBase, table=True):
     buyer_id: UUID = Field(foreign_key="user.id")
     seller_id: UUID = Field(foreign_key="user.id")
     total_price: float
+    currency: str = Field(default="aed")
     created_at: datetime = Field(default_factory=datetime.now)
     payment_method_id: UUID = Field(foreign_key="payment_method.id")
     billing_address_id: UUID = Field(foreign_key="billing_address.id")
+    payment_status: str = Field(default="pending")  # pending, paid, failed
+    stripe_payment_intent_id: str | None = Field(default=None, nullable=True)
 
     # Relationships
     item: "Item" = Relationship(
@@ -238,6 +245,10 @@ class Order(OrderBase, table=True):
         },
     )
     cancellation: "OrderCancellation" = Relationship(
+        back_populates="order",
+        sa_relationship_kwargs={"lazy": "selectin", "uselist": False},
+    )
+    payment: "Payment" = Relationship(
         back_populates="order",
         sa_relationship_kwargs={"lazy": "selectin", "uselist": False},
     )
@@ -324,6 +335,10 @@ class BillingAddress(BillingAddressBase, table=True):
             "lazy": "selectin",
         },
     )
+    payments: list["Payment"] = Relationship(
+        back_populates="billing_address",
+        sa_relationship_kwargs={"lazy": "selectin", "uselist": False},
+    )
 
 
 class PaymentMethod(PaymentMethodBase, table=True):
@@ -343,6 +358,10 @@ class PaymentMethod(PaymentMethodBase, table=True):
             "foreign_keys": "[Order.payment_method_id]",
             "lazy": "selectin",
         },
+    )
+    payments: list["Payment"] = Relationship(
+        back_populates="payment_method",
+        sa_relationship_kwargs={"lazy": "selectin", "uselist": False},
     )
 
 
@@ -433,14 +452,21 @@ class Favorite(FavoriteBase, table=True):
     )
 
 
-class TransactionHistory(TransactionHistoryBase, table=True):
-    id: UUID = Field(default_factory=uuid4, primary_key=True, unique=True)
-    order_id: UUID = Field(foreign_key="order.id")
-    user_id: UUID = Field(foreign_key="user.id")
-
-    # Relationships
-    order: "Order" = Relationship(sa_relationship_kwargs={"lazy": "selectin"})
-    user: "User" = Relationship(sa_relationship_kwargs={"lazy": "selectin"})
+# class TransactionHistory(TransactionHistoryBase, table=True):
+#     id: UUID = Field(default_factory=uuid4, primary_key=True, unique=True)
+#     order_id: UUID = Field(foreign_key="order.id")
+#     user_id: UUID = Field(foreign_key="user.id")
+#     created_at: datetime = Field(default_factory=datetime.now)
+#
+#     # Relationships
+#     order: "Order" = Relationship(
+#         back_populates="transaction_history",
+#         sa_relationship_kwargs={"lazy": "selectin"},
+#     )
+#     user: "User" = Relationship(
+#         back_populates="transaction_history",
+#         sa_relationship_kwargs={"lazy": "selectin"},
+#     )
 
 
 class ItemCondition(ItemConditionBase, table=True):
@@ -535,5 +561,26 @@ class CharityContribution(CharityContributionBase, table=True):
     )
 
 
-class Payment(PaymentBase):
+class Payment(PaymentBase, table=True):
+    id: UUID = Field(default_factory=uuid4, primary_key=True, unique=True)
     user_id: UUID = Field(foreign_key="user.id")
+    billing_address_id: UUID = Field(foreign_key="billing_address.id")
+    payment_method_id: UUID = Field(foreign_key="payment_method.id")
+    created_at: datetime = Field(default_factory=datetime.now)
+
+    # Relationships
+    user: "User" = Relationship(
+        back_populates="payments", sa_relationship_kwargs={"lazy": "selectin"}
+    )
+    order: "Order" = Relationship(
+        back_populates="payment",
+        sa_relationship_kwargs={"lazy": "selectin", "uselist": False},
+    )
+    payment_method: "PaymentMethod" = Relationship(
+        back_populates="payments",
+        sa_relationship_kwargs={"lazy": "selectin", "uselist": False},
+    )
+    billing_address: "BillingAddress" = Relationship(
+        back_populates="payments",
+        sa_relationship_kwargs={"lazy": "selectin", "uselist": False},
+    )

@@ -5,7 +5,7 @@ from sqlmodel import SQLModel
 from rizana.settings import Settings
 
 
-async def create_app_engine() -> AsyncEngine:
+async def create_app_engine(echo: bool = False) -> AsyncEngine:
     """
     Creates and configures the application's database engine.
 
@@ -19,7 +19,7 @@ async def create_app_engine() -> AsyncEngine:
     settings = Settings()
     if "sqlite" in settings.database_url:
         engine = create_async_engine(
-            settings.database_url, connect_args={"check_same_thread": False}, echo=True
+            settings.database_url, connect_args={"check_same_thread": False}, echo=echo
         )
 
         @listens_for(engine.sync_engine, "connect")
@@ -42,7 +42,7 @@ async def create_app_engine() -> AsyncEngine:
         # SQLAlchemyInstrumentor().instrument(engine=engine)
 
     else:
-        engine = create_async_engine(settings.database_url, echo=True)
+        engine = create_async_engine(settings.database_url, echo=echo)
     return engine
 
 

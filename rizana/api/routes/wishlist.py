@@ -6,8 +6,7 @@ from starlette.status import HTTP_201_CREATED, HTTP_204_NO_CONTENT
 from rizana.api.controllers.wishlist import WishlistController
 from rizana.api.models.table import Item, User, Wish
 from rizana.api.schemas.wishlist import WishCreate
-from rizana.dependencies import (get_current_active_user,
-                                 get_wishlist_controller)
+from rizana.dependencies import get_current_active_user, get_wishlist_controller
 
 router = APIRouter(
     prefix="/wishlist", tags=["wishlist"], responses={404: {"description": "Not found"}}

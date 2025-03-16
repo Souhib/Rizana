@@ -5,14 +5,25 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from rizana.api.controllers.user import UserController
 from rizana.api.models.order import OrderStatus
-from rizana.api.models.table import (BillingAddress, CharityContribution,
-                                     Conversation, Item, Order,
-                                     OrderCancellation, PaymentMethod,
-                                     Proposal, User)
+from rizana.api.models.table import (
+    BillingAddress,
+    CharityContribution,
+    Conversation,
+    Item,
+    Order,
+    OrderCancellation,
+    PaymentMethod,
+    Proposal,
+    User,
+)
 from rizana.api.schemas.chat import ProposalStatus
-from rizana.api.schemas.error import (ItemDoesNotExist, OrderNotFoundError,
-                                      UserNotAllowed)
+from rizana.api.schemas.error import (
+    ItemDoesNotExist,
+    OrderNotFoundError,
+    UserNotAllowed,
+)
 from rizana.api.schemas.order import OrderCreate
+from rizana.api.schemas.payment import CharityContributionCreate
 from rizana.api.schemas.user import UserQuery
 
 
@@ -56,7 +67,7 @@ class OrderController:
 
         if buyer.id == item.user_id:
             raise UserNotAllowed(
-                uuid=buyer.id, action="create an order for another user"
+                uuid=buyer.id, action="Create an order for its own item"
             )
 
         price = (
@@ -82,7 +93,7 @@ class OrderController:
             payment_method_id=payment_method.id,
             billing_address_id=billing_address.id,
             buyer_id=buyer.id,
-            seller_id=seller.id
+            seller_id=seller.id,
         )
         self.db.add(order)
         await self.db.commit()
@@ -115,7 +126,7 @@ class OrderController:
         """
         conversation = (
             await self.db.exec(
-                select(Conversation).where(
+                select(Conversation).where(  # type: ignore
                     Conversation.buyer_id == buyer_id,
                     Conversation.seller_id == seller_id,
                     Conversation.item_id == order_create.item_id,
@@ -128,7 +139,7 @@ class OrderController:
 
         proposal = (
             await self.db.exec(
-                select(Proposal).where(
+                select(Proposal).where(  # type: ignore
                     Proposal.conversation_id == conversation.id,
                     Proposal.status == ProposalStatus.ACCEPTED,
                 )
@@ -272,3 +283,34 @@ class OrderController:
                 select(OrderCancellation).where(OrderCancellation.order_id == order_id)
             )
         ).one()
+
+    async def update_order_charity(
+        self, order_id: UUID, charity_data: CharityContributionCreate
+    ) -> Order:
+        """
+        Updates or adds a charity contribution to an existing order.
+
+        Args:
+            order_id (UUID): The ID of the order to update
+            charity_data (CharityContributionBase): The charity contribution data
+
+        Returns:
+            Order: The updated order object
+
+        Raises:
+            OrderNotFoundError: If the order with the given ID doesn't exist
+        """
+        order = await self.get_order(order_id)
+
+        # Add new charity contribution
+        contribution = CharityContribution(
+            order_id=order.id,
+            user_id=order.buyer_id,
+            amount=charity_data.amount,
+            is_rounded=charity_data.is_rounded,
+        )
+        self.db.add(contribution)
+        await self.db.commit()
+        await self.db.refresh(order)
+
+        return order

@@ -124,4 +124,6 @@ class PaymentBase(DBModel):
 
 
 class PaymentIntentCreate(PaymentBase):
-    description: str
+    item_id: UUID
+    item_name: str
+    item_price: float

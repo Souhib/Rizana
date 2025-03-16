@@ -14,6 +14,7 @@ from rizana.api.controllers.wishlist import WishlistController
 from rizana.api.models.table import User
 from rizana.api.schemas.error import UserAccountIsNotActive, UserNotAllowed
 from rizana.api.schemas.user import UserQuery
+from rizana.api.services.stripe_service import StripeService
 from rizana.database import create_app_engine
 from rizana.settings import Settings
 
@@ -31,7 +32,7 @@ def get_settings():
     Returns:
         Settings: The application settings.
     """
-    return Settings()
+    return Settings()  # type: ignore
 
 
 async def get_engine():
@@ -86,6 +87,7 @@ async def get_user_controller(
         settings.jwt_secret_key,
         settings.jwt_encryption_algorithm,
         settings.resend_api_key,
+        settings.environment,
     )
 
 
@@ -107,22 +109,12 @@ async def get_item_controller(
     return ItemController(session)
 
 
-async def get_payment_controller(
-    session: AsyncSession = Depends(get_session),
-) -> PaymentController:
-    """
-    Returns the payment controller.
-
-    This function asynchronously returns the payment controller instance. The payment controller is
-    responsible for managing payment-related operations.
-
-    Args:
-        session (AsyncSession): The database session. Defaults to the session returned by `get_session`.
-
-    Returns:
-        PaymentController: The payment controller instance.
-    """
-    return PaymentController(session)
+async def get_stripe_service(settings: Settings = Depends(get_settings)):
+    return StripeService(
+        settings.stripe_secret_key,
+        settings.frontend_success_url,
+        settings.frontend_cancel_url,
+    )
 
 
 async def get_order_controller(
@@ -143,6 +135,28 @@ async def get_order_controller(
         OrderController: The order controller instance.
     """
     return OrderController(session, user_controller)
+
+
+async def get_payment_controller(
+    session: AsyncSession = Depends(get_session),
+    stripe_service: StripeService = Depends(get_stripe_service),
+    order_controller: OrderController = Depends(get_order_controller),
+) -> PaymentController:
+    """
+    Returns the payment controller.
+
+    This function asynchronously returns the payment controller instance. The payment controller is
+    responsible for managing payment-related operations.
+
+    Args:
+        session (AsyncSession): The database session. Defaults to the session returned by `get_session`.
+        stripe_service (StripeService): The Stripe service instance. Defaults to the instance returned by `get_stripe_service`.
+        order_controller (OrderController): The order controller instance. Defaults to the instance returned by `get_order_controller`.
+
+    Returns:
+        PaymentController: The payment controller instance.
+    """
+    return PaymentController(session, stripe_service, order_controller)
 
 
 async def get_wishlist_controller(
