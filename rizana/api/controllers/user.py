@@ -127,7 +127,7 @@ class UserController:
                 await self.db.exec(
                     select(User)
                     .where(User.id == user_id)
-                    .where(User.is_active is False)
+                    .where(User.is_active == False)
                 )
             ).one()
         except NoResultFound:
@@ -162,13 +162,15 @@ class UserController:
             await self.db.refresh(email_activation)
 
             if self.env != "dev":
+                await self._send_activation_email(
+                    new_user, email_activation.activation_key
+                )
+            else:
                 # With loguru logger print a message to explain that we're in dev mode so we're not gonna send email
                 logger.info(
                     f"We're in dev mode so we're not gonna send email, but here is the activation key: {email_activation.activation_key}"
                 )
-                await self._send_activation_email(
-                    new_user, email_activation.activation_key
-                )
+            print("User created : ", new_user)
             return new_user
         except IntegrityError as e:
             print(e)
@@ -385,7 +387,7 @@ class UserController:
             await self.db.exec(
                 select(EmailActivation)
                 .where(EmailActivation.user_id == user_id)
-                .where(EmailActivation.is_activated is False)
+                .where(EmailActivation.is_activated == False)
             )
         ).one()
         if email_activation.created_at < datetime.now() - timedelta(minutes=30):

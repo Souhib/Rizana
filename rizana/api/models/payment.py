@@ -35,7 +35,7 @@ class PaymentMethodBase(DBModel):
         card_number (str): The card number. Secure storage required.
         expiry_date (str): The expiry date of the card in MM/YY format.
         cvv (str): The CVV code of the card. Secure storage required.
-        holder_name (str): The name of the card holder.
+        holder_name (str): The name of the cardholder.
     """
 
     card_type: CardType
@@ -127,3 +127,11 @@ class PaymentIntentCreate(PaymentBase):
     item_id: UUID
     item_name: str
     item_price: float
+
+
+class BankAccountBase(DBModel):
+    account_name: str
+    account_number: str
+    iban: str
+    swift_code: str
+    is_primary: bool = Field(default=False)

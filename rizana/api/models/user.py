@@ -53,6 +53,7 @@ class UserBase(DBModel):
 
     username: str = Field(default=None, index=True, min_length=3)
     email: EmailStr = Field(unique=True, index=True, sa_type=AutoString)
+    phone: str | None = Field(default=None, index=True, unique=True)
     emirate_id: str | None = Field(default=None, index=True, unique=True)
     country: str | None = "ARE"
 
@@ -91,4 +92,20 @@ class UserBase(DBModel):
         if self.emirate_id is not None:
             if not re.match(r"^784-\d{4}-\d{7}-\d{1}$", self.emirate_id):
                 raise ValueError("Format of Emirate ID is not correct")
+        return self
+
+    @model_validator(mode="after")
+    def validate_phone(self) -> Self:
+        """
+        Validates that phone is provided when country is ARE and checks its format.
+
+        Returns:
+            Self: The validated instance.
+
+        Raises:
+            ValueError: If phone is required but not provided, or if its format is incorrect.
+        """
+        if self.country == "ARE" and self.phone:
+            if not re.match(r"^\+971\d{9}$", self.phone):
+                raise ValueError("Format of phone number is not correct")
         return self

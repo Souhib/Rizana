@@ -49,13 +49,14 @@ class OrderController:
 
         Args:
             order_create (OrderCreate): The order creation schema.
+            current_user (User): The user creating the order.
 
         Returns:
             Order: The newly created order object.
         """
         # Get item
         item = (
-            await self.db.exec(select(Item).where(Item.id == order_create.item_id))
+            await self.db.exec(select(Item).where(Item.id == order_create.item_id))  # type: ignore
         ).first()
         if not item:
             raise ItemDoesNotExist(item_id=order_create.item_id)
@@ -229,7 +230,7 @@ class OrderController:
         Returns:
             Order: The retrieved order object.
         """
-        order = (await self.db.exec(select(Order).where(Order.id == order_id))).first()
+        order = (await self.db.exec(select(Order).where(Order.id == order_id))).first()  # type: ignore
         if not order:
             raise OrderNotFoundError(order_id=order_id)
         return order
@@ -270,7 +271,7 @@ class OrderController:
         """
         return (
             await self.db.exec(
-                select(OrderCancellation).where(OrderCancellation.user_id == user_id)
+                select(OrderCancellation).where(OrderCancellation.user_id == user_id)  # type: ignore
             )
         ).all()
 
@@ -280,7 +281,7 @@ class OrderController:
         """
         return (
             await self.db.exec(
-                select(OrderCancellation).where(OrderCancellation.order_id == order_id)
+                select(OrderCancellation).where(OrderCancellation.order_id == order_id)  # type: ignore
             )
         ).one()
 

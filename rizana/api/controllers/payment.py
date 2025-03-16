@@ -8,14 +8,14 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from rizana.api.controllers.order import OrderController
 from rizana.api.models.stripe import PaymentIntentResponse
-from rizana.api.models.table import BillingAddress, PaymentMethod, User
+from rizana.api.models.table import BillingAddress, PaymentMethod, User, BankAccount
 from rizana.api.schemas.error import (
     BillingAddressCreationError,
     PaymentMethodCreationError,
     PaymentMethodDoesNotExist,
     UserNotAllowed,
 )
-from rizana.api.schemas.payment import BillingAddressCreate, PaymentMethodCreate
+from rizana.api.schemas.payment import BillingAddressCreate, PaymentMethodCreate, BankAccountCreate
 from rizana.api.services.stripe_service import StripeService
 
 
@@ -280,6 +280,43 @@ class PaymentController:
         self, payment_intent_id: str, current_user: User
     ) -> PaymentIntentResponse:
         """Confirms a payment intent."""
-        return await self.stripe_service.confirm_payment(
-            payment_intent_id, current_user
-        )
+        return await self.stripe_service.confirm_payment(payment_intent_id)
+
+    async def create_bank_account(self, bank_account: BankAccountCreate, user_id: UUID) -> BankAccount:
+        """
+        Creates a bank account for a user.
+
+        This method creates a new bank account with the provided data and associates it with the given user.
+        If is_primary is True, it will set all other bank accounts of the user to non-primary.
+
+        Args:
+            bank_account (BankAccountCreate): The bank account creation schema.
+            user_id (UUID): The ID of the user to associate the bank account with.
+
+        Returns:
+            BankAccount: The newly created bank account object.
+
+        Raises:
+            BankAccountCreationError: If the bank account creation fails due to an integrity error.
+        """
+        try:
+            if bank_account.is_primary:
+                # Set all existing bank accounts of the user to non-primary
+                existing_primary = await self.db.exec(
+                    select(BankAccount).where(  # type: ignore
+                        BankAccount.user_id == user_id,
+                        BankAccount.is_primary == True
+                    )
+                )
+                for account in existing_primary:
+                    account.is_primary = False
+                    self.db.add(account)
+
+            new_bank_account = BankAccount(**bank_account.model_dump(), user_id=user_id)
+            self.db.add(new_bank_account)
+            await self.db.commit()
+            await self.db.refresh(new_bank_account)
+            return new_bank_account
+        except IntegrityError as e:
+            await self.db.rollback()
+            raise BankAccountCreationError(user_id=user_id) from e

@@ -71,8 +71,6 @@ async def confirm_payment_intent(
         payment_intent_id, current_user
     )
 
-
-# Au début du fichier, après les autres imports
 router.mount("/static", StaticFiles(directory="static"), name="static")
 
 

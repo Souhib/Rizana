@@ -849,3 +849,20 @@ class PayoutError(BaseError):
             message=f"Failed to process payout: {message}",
             status_code=status_code,
         )
+
+class BankAccountCreationError(BaseError):
+    """
+    Exception raised when a bank account creation fails.
+
+    Args:
+        user_id (UUID): The ID of the user for whom the bank account creation failed.
+        status_code (int, optional): The HTTP status code for the error. Defaults to 400.
+    """
+
+    def __init__(self, user_id: UUID, status_code: int = 400):
+        logger.warning(f"Could not create a bank account for user {user_id}")
+        super().__init__(
+            name="BankAccountCreationError",
+            message="We couldn't create a bank account for you. Please try again.",
+            status_code=status_code,
+        )

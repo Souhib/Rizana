@@ -2,8 +2,10 @@ import asyncio
 import json
 import random
 import sys
+import traceback
 from enum import Enum
 from typing import List
+from uuid import UUID
 
 import typer
 from faker import Faker
@@ -24,13 +26,14 @@ from rizana.api.controllers.user import UserController
 from rizana.api.controllers.wishlist import WishlistController
 from rizana.api.models.order import CharityContributionBase, OrderStatus
 from rizana.api.models.payment import CardType
+from rizana.api.models.table import User
 from rizana.api.schemas.chat import MessageCreate, ProposalCreate
 from rizana.api.schemas.item import CategoryCreate, ItemCreate
 from rizana.api.schemas.order import OrderCreate
 from rizana.api.schemas.payment import (
     BillingAddressCreate,
     CharityContributionCreate,
-    PaymentMethodCreate,
+    PaymentMethodCreate, BankAccountCreate,
 )
 from rizana.api.schemas.user import UserCreate, UserQuery
 from rizana.api.schemas.wishlist import WishCreate
@@ -60,7 +63,7 @@ def log_section(title: str):
     console.print(Panel(title, style="bold blue", expand=False))
 
 
-class DataType(Enum):
+class DataType(str, Enum):
     ALL = "all"
     USERS = "users"
     CATEGORIES = "categories"
@@ -70,6 +73,7 @@ class DataType(Enum):
     MESSAGES = "messages"
     WISHES = "wishes"
     CHARITY = "charity"
+    BANK_ACCOUNTS = "bank_accounts"
 
 
 TEST_USERS = [
@@ -109,7 +113,7 @@ TEST_CATEGORIES = [
 ]
 
 
-async def create_users(user_controller: UserController) -> List[dict]:
+async def create_users(user_controller: UserController, db: AsyncSession) -> List[dict]:
     """
     Create test users with randomized data.
 
@@ -133,14 +137,25 @@ async def create_users(user_controller: UserController) -> List[dict]:
             is_admin = user_data.pop("is_admin", False)
             logger.info(f"Creating user: {user_data['email']}")
 
+            # Create the user
+            # try:
             user = await user_controller.create_user(UserCreate(**user_data))
             logger.debug(f"User created with ID: {user.id}")
+            # except Exception as e:
+            #     logger.error(f"Failed to create user {user_data['email']}: {str(e)}")
+            #     raise e
 
-            # Activate the user's account
-            activation = await user_controller.get_user_activation(user.id)
-            if activation:
-                await user_controller.activate_user(user.id, activation.activation_key)
-                logger.info(f"Activated account for: {user.email}")
+            # test = await user_controller.get_inactive_user(user.id)
+            # print("TEST : ", test)
+
+            # Get the activation key using the internal method
+            activation_key = await user_controller._get_latest_active_activation_key(user.id)
+            logger.debug(f"Got activation key for user: {user.email}")
+
+            # Activate the user
+            await user_controller.activate_user(user.id, activation_key)
+            logger.info(f"Activated account for: {user.email}")
+
 
             if is_admin:
                 user = await user_controller.set_user_admin(user.id)
@@ -640,63 +655,105 @@ async def create_charity_contributions(
     return created_contributions
 
 
-def print_payment_example_from_data(created_data: dict):
+async def create_bank_accounts(payment_controller: PaymentController, users: List[dict]) -> List[dict]:
     """
-    Generate and print a sample payment creation payload using actual database data.
-
-    Creates a formatted example of a payment intent creation request using
-    real item IDs from the database, useful for API testing.
+    Create test bank accounts for users.
 
     Args:
-        created_data (dict): Dictionary containing created test data including items and users
+        payment_controller (PaymentController): Controller instance for payment operations
+        users (List[dict]): List of users to create bank accounts for
+
+    Returns:
+        List[dict]: List of created bank accounts
     """
-    if not created_data.get("items") or not created_data.get("users"):
+    log_section("Creating Bank Accounts")
+    created_bank_accounts = []
+
+    for user in track(users, description="Creating bank accounts..."):
+        try:
+            bank_account = await payment_controller.create_bank_account(
+                BankAccountCreate(
+                    iban="AE070331234567890123456",
+                    account_name=f"Account {user['email']}",
+                    account_number=f"000123456789",
+                    swift_code="TESTAEXX",
+                    is_primary=True
+                ),
+                user["id"]
+            )
+            created_bank_accounts.append({
+                "id": bank_account.id,
+                "user_id": user["id"],
+                "account_number": bank_account.account_number
+            })
+            console.print(f"[green]✓[/green] Created bank account for: {user['email']}")
+            logger.debug(f"Created bank account ID: {bank_account.id}")
+
+        except Exception as e:
+            logger.error(f"Failed to create bank account for user {user['email']}: {str(e)}")
+            logger.exception(str(e))
+            console.print(f"[red]✗[/red] Failed to create bank account for: {user['email']}")
+
+    return created_bank_accounts
+
+async def print_payment_example_from_data(
+    created_data: dict,
+    user_controller: UserController = None,
+    payment_controller: PaymentController = None
+):
+    """
+    Generate and print a sample payment creation payload using actual database data,
+    and create a payment intent if payment_controller is provided.
+    """
+    if not created_data.get("orders") or not created_data.get("users"):
         return
 
-    # Get first item and a user who is not the seller
-    item = created_data["items"][0]
-    user = next(
-        (u for u in created_data["users"] if u["id"] != item["seller_id"]), None
-    )
+    # Find the admin user
+    admin_user = next((u for u in created_data["users"] if u.get("is_admin")), None)
+    if not admin_user:
+        console.print("[red]No admin user found in created data[/red]")
+        return
 
-    if not user:
+    # Find an order where admin is the buyer
+    admin_order = next((order for order in created_data["orders"]
+                        if str(order["buyer_id"]) == str(admin_user["id"])), None)
+    if not admin_order:
+        console.print("[red]No orders found for admin user[/red]")
         return
 
     payment_example = {
-        "item_id": str(item["id"]),  # Convert UUID to string
-        "payment_method": {
-            "card_type": "VISA",
-            "card_number": "4242424242424242",
-            "expiry_date": "12/25",
-            "cvv": "123",
-            "holder_name": "Test User",
-        },
-        "billing_address": {
-            "billing_street": "123 Main St",
-            "billing_city": "Dubai",
-            "billing_state": "Dubai",
-            "billing_country": "ARE",
-            "billing_postal_code": "12345",
-        },
-        "charity_contribution": {"amount": 5.0, "is_rounded": True},
-        "save_card": True,
-        "save_billing_address": True,
+        "order_id": str(admin_order["id"])
     }
 
-    console.print(
-        "\n[bold yellow]═══════════════════════════════════════[/bold yellow]"
-    )
-    console.print(
-        "[bold green]Payment Creation Example with Database Data[/bold green]"
-    )
+    console.print("\n[bold yellow]═══════════════════════════════════════[/bold yellow]")
+    console.print("[bold green]Payment Creation Example with Admin Order[/bold green]")
     console.print("[bold yellow]═══════════════════════════════════════[/bold yellow]")
-    console.print(
-        "\nCopy this payload for Swagger POST /api/payments/create-payment-intent:"
-    )
+    console.print("\nAdmin User Email:", admin_user["email"])
+    console.print("Order ID:", admin_order["id"])
+
+    if payment_controller and user_controller:
+        try:
+            # Get the user using user_controller
+            user = await user_controller.get_user(UserQuery(user_id=admin_user["id"]))
+
+            # Create actual payment intent
+            payment_intent = await payment_controller.create_payment_intent(
+                UUID(str(admin_order["id"])),
+                user
+            )
+            console.print("\n[bold green]Created Payment Intent:[/bold green]")
+            console.print("Client Secret:", payment_intent.client_secret)
+            console.print("Payment Intent ID:", payment_intent.payment_intent_id)
+        except Exception as e:
+            console.print(f"\n[red]Failed to create payment intent: {str(e)}[/red]")
+            logger.error(f"Payment intent creation error: {str(e)}")
+            import traceback
+            logger.error(traceback.format_exc())
+
+    console.print("\nCopy this payload for Swagger POST /api/payments/create-payment-intent:")
     console.print(json.dumps(payment_example, indent=2))
     console.print(
-        "\n[bold blue]Note:[/bold blue] This uses actual item_id from your database"
-    )
+        "\n[bold blue]Note:[/bold blue] This uses an actual order_id from your database created by the admin user")
     console.print("[bold yellow]═══════════════════════════════════════[/bold yellow]")
 
 
@@ -738,6 +795,7 @@ async def create_data(db: AsyncSession, data_types: List[DataType] | None = None
         item_controller = ItemController(db)
         order_controller = OrderController(db, user_controller)
         stripe_service = StripeService(
+            db,
             settings.stripe_secret_key,
             settings.frontend_success_url,
             settings.frontend_cancel_url,
@@ -753,8 +811,15 @@ async def create_data(db: AsyncSession, data_types: List[DataType] | None = None
         with console.status("[bold blue]Creating test data...") as status:
             if DataType.ALL in data_types or DataType.USERS in data_types:
                 status.update("[bold blue]Creating users...")
-                created_data["users"] = await create_users(user_controller)
+                created_data["users"] = await create_users(user_controller, db)
                 logger.info(f"Created {len(created_data['users'])} users")
+
+                # Add bank accounts creation right after users
+                status.update("[bold blue]Creating bank accounts...")
+                created_data["bank_accounts"] = await create_bank_accounts(
+                    payment_controller, created_data["users"]
+                )
+                logger.info(f"Created {len(created_data['bank_accounts'])} bank accounts")
 
             if DataType.ALL in data_types or DataType.CATEGORIES in data_types:
                 status.update("[bold blue]Creating categories...")
@@ -826,7 +891,7 @@ async def create_data(db: AsyncSession, data_types: List[DataType] | None = None
                 )
 
         logger.success("All test data created successfully")
-        # print_payment_example_from_data(created_data)
+        await print_payment_example_from_data(created_data, user_controller, payment_controller)
         return created_data
 
     except Exception as e:
@@ -889,34 +954,19 @@ def init(
     ),
     show_summary: bool = typer.Option(True, help="Show summary of created data"),
 ):
-    """
-    Initialize or clear the database with test data.
-
-    Command-line interface for database operations, supporting creation of test data
-    or complete database cleanup. Handles database connection, table creation,
-    and orchestrates the entire initialization process.
-
-    Args:
-        action (str): The action to perform - either 'create' or 'delete'
-        data_types (List[DataType]): Specific types of data to create
-        show_summary (bool): Whether to display a summary after data creation
-
-    Raises:
-        Exception: If database initialization fails, with detailed error logging
-    """
-
     try:
         enum_data_types = [DataType(dt.lower()) for dt in data_types]
     except ValueError:
         valid_types = ", ".join([t.value for t in DataType])
-        console.print(f"[red]Invalid data type. Valid types are: {valid_types}[/red]")
+        print(f"Error: Invalid data type. Valid types are: {valid_types}", file=sys.stderr)
+        print(traceback.format_exc(), file=sys.stderr)
         raise typer.Exit(1)
 
     logger.info(f"Starting database initialization - Action: {action}")
 
     async def run():
+        engine = await create_app_engine()
         try:
-            engine = await create_app_engine()
             await create_db_and_tables(engine)
             logger.info("Database connection established")
 
@@ -931,12 +981,16 @@ def init(
 
             logger.info("Database initialization completed successfully")
 
-        except Exception as e:
-            logger.error(f"Database initialization failed: {str(e)}")
+        except Exception:
             raise
         await engine.dispose()
 
-    asyncio.run(run())
+    try:
+        asyncio.run(run())
+    except Exception as e:
+        console.print("\n[bold red]Error:[/bold red] " + str(e), highlight=False)
+        print(traceback.format_exc(), file=sys.stderr)
+        raise typer.Exit(1)
 
 
 if __name__ == "__main__":

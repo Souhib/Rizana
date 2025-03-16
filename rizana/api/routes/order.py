@@ -19,4 +19,4 @@ async def create_order(
     order_controller: OrderController = Depends(get_user_controller),
     current_user: User = Depends(get_current_active_user),
 ) -> Order:
-    return await order_controller.create_order(order_create)
+    return await order_controller.create_order(order_create, current_user)
