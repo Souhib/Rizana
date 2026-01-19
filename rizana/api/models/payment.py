@@ -5,6 +5,7 @@ from uuid import UUID
 
 import pycountry
 import pydantic
+from sqlalchemy import JSON, Column
 from sqlmodel import Field
 
 from rizana.api.models.shared import DBModel
@@ -135,3 +136,9 @@ class BankAccountBase(DBModel):
     iban: str
     swift_code: str
     is_primary: bool = Field(default=False)
+
+
+class StripeSellerAccountBase(DBModel):
+    user_id: UUID = Field(foreign_key="user.id", unique=True)
+    stripe_account_id: str = Field(unique=True)
+    capabilities: dict = Field(default_factory=dict, sa_column=Column(JSON))

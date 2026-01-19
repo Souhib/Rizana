@@ -1,10 +1,10 @@
-from fastapi import APIRouter, Depends
-from starlette.status import HTTP_201_CREATED, HTTP_204_NO_CONTENT
+from typing import Annotated, List
 
-from rizana.api.controllers.item import ItemController
-from rizana.api.models.table import User
-from rizana.api.schemas.item import CategoryCreate
-from rizana.dependencies import get_current_active_admin_user, get_item_controller
+from fastapi import APIRouter, Depends, Query
+
+from rizana.api.controllers.category import CategoryController
+from rizana.api.schemas.category import CategoryCreate, CategoryUpdate, CategoryView
+from rizana.dependencies import get_category_controller
 
 router = APIRouter(
     prefix="/categories",
@@ -13,28 +13,87 @@ router = APIRouter(
 )
 
 
-@router.get("/{category_name}")
+@router.get("/", response_model=List[CategoryView])
+async def get_categories(
+    skip: Annotated[int, Query(ge=0)] = 0,
+    limit: Annotated[int, Query(ge=1, le=100)] = 100,
+    category_controller: CategoryController = Depends(get_category_controller),
+) -> List[CategoryView]:
+    """Get all categories.
+
+    Args:
+        skip: Number of records to skip.
+        limit: Maximum number of records to return.
+        category_controller: The category controller.
+
+    Returns:
+        List[CategoryView]: List of categories.
+    """
+    return await category_controller.get_all(skip, limit)
+
+
+@router.get("/{category_id}", response_model=CategoryView)
 async def get_category(
-    category_name: str,
-    item_controller: ItemController = Depends(get_item_controller),
-    current_user: User = Depends(get_current_active_admin_user),
-):
-    return await item_controller.get_category(category_name)
+    category_id: int,
+    category_controller: CategoryController = Depends(get_category_controller),
+) -> CategoryView:
+    """Get a category by ID.
+
+    Args:
+        category_id: The category's ID.
+        category_controller: The category controller.
+
+    Returns:
+        CategoryView: The category details.
+    """
+    return await category_controller.get_by_id(category_id)
 
 
-@router.post("/", status_code=HTTP_201_CREATED)
+@router.post("/", response_model=CategoryView)
 async def create_category(
-    category_create: CategoryCreate,
-    item_controller: ItemController = Depends(get_item_controller),
-    current_user: User = Depends(get_current_active_admin_user),
-):
-    return await item_controller.create_category(category_create)
+    category: CategoryCreate,
+    category_controller: CategoryController = Depends(get_category_controller),
+) -> CategoryView:
+    """Create a new category.
+
+    Args:
+        category: The category creation data.
+        category_controller: The category controller.
+
+    Returns:
+        CategoryView: The created category.
+    """
+    return await category_controller.create(category)
 
 
-@router.delete("/{category_name}", status_code=HTTP_204_NO_CONTENT)
+@router.put("/{category_id}", response_model=CategoryView)
+async def update_category(
+    category_id: int,
+    category: CategoryUpdate,
+    category_controller: CategoryController = Depends(get_category_controller),
+) -> CategoryView:
+    """Update a category.
+
+    Args:
+        category_id: The category's ID.
+        category: The category update data.
+        category_controller: The category controller.
+
+    Returns:
+        CategoryView: The updated category.
+    """
+    return await category_controller.update(category_id, category)
+
+
+@router.delete("/{category_id}")
 async def delete_category(
-    category_name: str,
-    item_controller: ItemController = Depends(get_item_controller),
-    current_user: User = Depends(get_current_active_admin_user),
-):
-    return await item_controller.delete_category(category_name)
+    category_id: int,
+    category_controller: CategoryController = Depends(get_category_controller),
+) -> None:
+    """Delete a category.
+
+    Args:
+        category_id: The category's ID.
+        category_controller: The category controller.
+    """
+    await category_controller.delete(category_id)

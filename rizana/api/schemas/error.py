@@ -850,6 +850,7 @@ class PayoutError(BaseError):
             status_code=status_code,
         )
 
+
 class BankAccountCreationError(BaseError):
     """
     Exception raised when a bank account creation fails.
@@ -865,4 +866,104 @@ class BankAccountCreationError(BaseError):
             name="BankAccountCreationError",
             message="We couldn't create a bank account for you. Please try again.",
             status_code=status_code,
+        )
+
+
+class StripeSellerAccountCreationError(BaseError):
+    """
+    Exception raised when a Stripe account creation fails.
+
+    Args:
+        seller_id (UUID): The ID of the seller for whom the account creation failed.
+        error_message (str): The specific error message from Stripe.
+        status_code (int, optional): The HTTP status code for the error. Defaults to 400.
+    """
+
+    def __init__(self, seller_id: UUID, error_message: str, status_code: int = 400):
+        logger.warning(f"Could not create a Stripe account for seller {seller_id}")
+        super().__init__(
+            name="StripeAccountCreationError",
+            message="We couldn't create a Stripe account for you. Please try again.",
+            status_code=status_code,
+        )
+
+
+class StripeSellerAccountNotFoundError(BaseError):
+    """
+    Exception raised when a Stripe account is not found.
+
+    Args:
+        seller_id (UUID): The ID of the seller for whom the account was not found.
+        status_code (int, optional): The HTTP status code for the error. Defaults to 404.
+    """
+
+    def __init__(self, seller_id: UUID, status_code: int = 404):
+        logger.warning(f"Stripe account for seller {seller_id} not found")
+        super().__init__(
+            name="StripeAccountNotFoundError",
+            message="The Stripe account for this seller does not exist.",
+            status_code=status_code,
+        )
+
+
+class StripeSellerAccountNotVerifiedError(BaseError):
+    """
+    Exception raised when a Stripe account is not verified.
+
+    Args:
+        seller_id (UUID): The ID of the seller for whom the account is not verified.
+        status_code (int, optional): The HTTP status code for the error. Defaults to 403.
+    """
+
+    def __init__(self, seller_id: UUID, status_code: int = 403):
+        logger.warning(f"Stripe account for seller {seller_id} is not verified")
+        super().__init__(
+            name="StripeAccountNotVerifiedError",
+            message="The Stripe account for this seller is not verified.",
+            status_code=status_code,
+        )
+
+
+class WishlistError(BaseError):
+    """Base error for wishlist operations."""
+    def __init__(
+        self,
+        name: str,
+        message: str,
+        status_code: int = 400,
+        data: dict | None = None,
+    ):
+        super().__init__(name=name, message=message, status_code=status_code, data=data)
+
+
+class WishlistItemNotFoundError(WishlistError):
+    """Error raised when a wishlist item is not found."""
+    def __init__(self, wishlist_id: int):
+        super().__init__(
+            name="WishlistItemNotFound",
+            message=f"Wishlist item with ID {wishlist_id} not found",
+            status_code=404,
+            data={"wishlist_id": wishlist_id},
+        )
+
+
+class WishlistItemAlreadyExistsError(WishlistError):
+    """Error raised when a wishlist item already exists."""
+    def __init__(self, user_id: int, item_id: int):
+        super().__init__(
+            name="WishlistItemAlreadyExists",
+            message="Item is already in the wishlist",
+            status_code=409,
+            data={"user_id": user_id, "item_id": item_id},
+        )
+
+
+class WishlistItemNotOwnedError(WishlistError):
+    """Error raised when a user tries to access a wishlist item they don't own."""
+    def __init__(self, user_id: int, wishlist_id: int):
+        super().__init__(
+            name="WishlistItemNotOwned",
+            message="You don't have permission to access this wishlist item",
+            status_code=403,
+            data={"user_id": user_id, "wishlist_id": wishlist_id},
         )

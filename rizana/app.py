@@ -1,5 +1,9 @@
+from time import time
+from typing import Callable
+
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from loguru import logger
 from richapi import enrich_openapi
 from scalar_fastapi import get_scalar_api_reference
 from starlette.responses import JSONResponse
@@ -13,6 +17,39 @@ from rizana.api.routes.user import router as user_router
 from rizana.api.routes.wishlist import router as wishlist_router
 from rizana.api.schemas.error import BaseError
 from rizana.database import create_app_engine, create_db_and_tables
+from rizana.logger_config import configure_logger
+from rizana.settings import Settings
+
+
+async def log_request_middleware(request: Request, call_next: Callable):
+    """Middleware to log request and response details.
+
+    Args:
+        request: The incoming request.
+        call_next: The next middleware or route handler.
+
+    Returns:
+        Response: The response from the next middleware or route handler.
+    """
+    start_time = time()
+    response = await call_next(request)
+    process_time = time() - start_time
+
+    # Log request and response details
+    logger.info(
+        "Request processed",
+        extra={
+            "performance": {
+                "process_time": process_time,
+                "path": request.url.path,
+                "method": request.method,
+                "status_code": response.status_code,
+                "client_host": request.client.host if request.client else None,
+            }
+        },
+    )
+
+    return response
 
 
 def create_app(lifespan) -> FastAPI:
@@ -25,8 +62,17 @@ def create_app(lifespan) -> FastAPI:
     Returns:
         FastAPI: The created FastAPI app.
     """
+    # Load settings
+    settings = Settings()
+
+    # Configure logger
+    configure_logger(settings)
+    logger.info("Starting Rizana application", extra={"environment": settings.environment})
+
     origins = ["*"]
     app = FastAPI(title="Rizana", lifespan=lifespan)
+    
+    # Add middleware
     app.add_middleware(
         CORSMiddleware,  # type: ignore
         allow_origins=origins,
@@ -34,6 +80,7 @@ def create_app(lifespan) -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    app.middleware("http")(log_request_middleware)
 
     app.include_router(user_router)
     app.include_router(item_router)
@@ -75,6 +122,20 @@ def create_app(lifespan) -> FastAPI:
         Returns:
             JSONResponse: A JSON response containing the error details.
         """
+        logger.error(
+            f"Error occurred: {exc.name} - {exc.message}",
+            extra={
+                "error": {
+                    "name": exc.name,
+                    "message": exc.message,
+                    "status_code": exc.status_code,
+                    "path": request.url.path,
+                    "method": request.method,
+                    "data": exc.data if hasattr(exc, "data") else None,
+                }
+            },
+        )
+
         return JSONResponse(
             status_code=exc.status_code,
             content={
@@ -86,8 +147,10 @@ def create_app(lifespan) -> FastAPI:
 
     @app.on_event("startup")
     async def on_startup():
+        logger.info("Creating database engine and tables")
         engine = await create_app_engine()
         await create_db_and_tables(engine)
+        logger.info("Database setup completed")
 
     app.openapi = enrich_openapi(app, target_module=["main"])
 

@@ -12,7 +12,13 @@ from rizana.api.models.item import (
     ItemConditionBase,
 )
 from rizana.api.models.order import CharityContributionBase, DiscountBase, OrderBase
-from rizana.api.models.payment import BillingAddressBase, PaymentBase, PaymentMethodBase, BankAccountBase
+from rizana.api.models.payment import (
+    BankAccountBase,
+    BillingAddressBase,
+    PaymentBase,
+    PaymentMethodBase,
+    StripeSellerAccountBase,
+)
 from rizana.api.models.report import ReportBase
 from rizana.api.models.review import ReviewBase
 from rizana.api.models.shared import DBModel, generate_activation_key
@@ -103,7 +109,7 @@ class Item(BaseItem, table=True):
         sa_relationship_kwargs={
             "foreign_keys": "[Report.reported_item_id]",
             "lazy": "selectin",
-        }
+        },
     )
 
 
@@ -123,6 +129,11 @@ class User(UserBase, table=True):
     created_at: datetime = Field(default_factory=datetime.now)
     is_active: bool = False
     is_admin: bool = True
+
+    is_seller: bool = Field(default=False)
+    seller_status: str = Field(default="inactive")  # inactive, pending, active
+    seller_verification_url: str | None = Field(default=None)
+    seller_verification_expires_at: datetime | None = Field(default=None)
 
     # Relationships
     items: list["Item"] = Relationship(
@@ -212,22 +223,25 @@ class User(UserBase, table=True):
         sa_relationship_kwargs={
             "foreign_keys": "[Report.reporter_id]",
             "lazy": "selectin",
-        }
+        },
     )
     reports_received: list["Report"] = Relationship(
         back_populates="reported_user",
         sa_relationship_kwargs={
             "foreign_keys": "[Report.reported_user_id]",
             "lazy": "selectin",
-        }
+        },
     )
     bank_accounts: list["BankAccount"] = Relationship(
+        back_populates="user", sa_relationship_kwargs={"lazy": "selectin"}
+    )
+    # Add new relationship
+    stripe_seller_account: "StripeSellerAccount" = Relationship(
         back_populates="user", sa_relationship_kwargs={"lazy": "selectin"}
     )
     payouts: list["Payout"] = Relationship(
         back_populates="seller", sa_relationship_kwargs={"lazy": "selectin"}
     )
-
 
 
 class Order(OrderBase, table=True):
@@ -542,23 +556,22 @@ class Report(ReportBase, table=True):
         sa_relationship_kwargs={
             "foreign_keys": "[Report.reporter_id]",
             "lazy": "selectin",
-        }
+        },
     )
     reported_user: "User" = Relationship(
         back_populates="reports_received",
         sa_relationship_kwargs={
             "foreign_keys": "[Report.reported_user_id]",
             "lazy": "selectin",
-        }
+        },
     )
     reported_item: "Item" = Relationship(
         back_populates="reports",
         sa_relationship_kwargs={
             "foreign_keys": "[Report.reported_item_id]",
             "lazy": "selectin",
-        }
+        },
     )
-
 
 
 class Notification(NotificationBase, table=True):
@@ -641,12 +654,10 @@ class BankAccount(BankAccountBase, table=True):
 
     # Relationships
     user: "User" = Relationship(
-        back_populates="bank_accounts",
-        sa_relationship_kwargs={"lazy": "selectin"}
+        back_populates="bank_accounts", sa_relationship_kwargs={"lazy": "selectin"}
     )
     payouts: list["Payout"] = Relationship(
-        back_populates="bank_account",
-        sa_relationship_kwargs={"lazy": "selectin"}
+        back_populates="bank_account", sa_relationship_kwargs={"lazy": "selectin"}
     )
 
 
@@ -659,7 +670,8 @@ class Payout(DBModel, table=True):
     order_id: UUID = Field(foreign_key="order.id")
     seller_id: UUID = Field(foreign_key="user.id")
     bank_account_id: UUID = Field(foreign_key="bank_account.id")
-    stripe_payout_id: str | None = Field(default=None)
+    # stripe_payout_id: str | None = Field(default=None)
+    stripe_payment_intent_id: str
 
     base_amount: float
     platform_fee: float
@@ -674,14 +686,23 @@ class Payout(DBModel, table=True):
 
     # Relationships
     order: "Order" = Relationship(
-        back_populates="payout",
-        sa_relationship_kwargs={"lazy": "selectin"}
+        back_populates="payout", sa_relationship_kwargs={"lazy": "selectin"}
     )
     seller: "User" = Relationship(
-        back_populates="payouts",
-        sa_relationship_kwargs={"lazy": "selectin"}
+        back_populates="payouts", sa_relationship_kwargs={"lazy": "selectin"}
     )
     bank_account: "BankAccount" = Relationship(
-        back_populates="payouts",
-        sa_relationship_kwargs={"lazy": "selectin"}
+        back_populates="payouts", sa_relationship_kwargs={"lazy": "selectin"}
+    )
+
+
+class StripeSellerAccount(StripeSellerAccountBase, table=True):
+    id: UUID = Field(default_factory=uuid4, primary_key=True, unique=True)
+    created_at: datetime = Field(default_factory=datetime.now)
+    updated_at: datetime = Field(default_factory=datetime.now)
+    status: str = Field(default="pending")  # pending, verified, rejected
+
+    user: "User" = Relationship(
+        back_populates="stripe_seller_account",
+        sa_relationship_kwargs={"lazy": "selectin"},
     )

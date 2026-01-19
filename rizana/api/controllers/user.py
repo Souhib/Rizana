@@ -125,9 +125,9 @@ class UserController:
         try:
             return (
                 await self.db.exec(
-                    select(User)
+                    select(User)  # type: ignore
                     .where(User.id == user_id)
-                    .where(User.is_active == False)
+                    .where(User.is_active == False)  # noqa: E712
                 )
             ).one()
         except NoResultFound:
@@ -385,9 +385,9 @@ class UserController:
         """
         email_activation = (
             await self.db.exec(
-                select(EmailActivation)
+                select(EmailActivation)  # type: ignore
                 .where(EmailActivation.user_id == user_id)
-                .where(EmailActivation.is_activated == False)
+                .where(EmailActivation.is_activated == False)  # noqa: E712
             )
         ).one()
         if email_activation.created_at < datetime.now() - timedelta(minutes=30):

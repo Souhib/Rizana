@@ -26,14 +26,14 @@ from rizana.api.controllers.user import UserController
 from rizana.api.controllers.wishlist import WishlistController
 from rizana.api.models.order import CharityContributionBase, OrderStatus
 from rizana.api.models.payment import CardType
-from rizana.api.models.table import User
 from rizana.api.schemas.chat import MessageCreate, ProposalCreate
 from rizana.api.schemas.item import CategoryCreate, ItemCreate
 from rizana.api.schemas.order import OrderCreate
 from rizana.api.schemas.payment import (
+    BankAccountCreate,
     BillingAddressCreate,
     CharityContributionCreate,
-    PaymentMethodCreate, BankAccountCreate,
+    PaymentMethodCreate,
 )
 from rizana.api.schemas.user import UserCreate, UserQuery
 from rizana.api.schemas.wishlist import WishCreate
@@ -82,6 +82,7 @@ TEST_USERS = [
         "email": "admin@example.com",
         "password": "admin123",
         "emirate_id": "784-1234-1234567-1",
+        "phone": "+971501234567",  # Added UAE phone number
         "country": "ARE",
         "is_admin": True,
     },
@@ -90,13 +91,16 @@ TEST_USERS = [
         "email": "john@example.com",
         "password": "john123",
         "emirate_id": "784-1234-1234567-2",
+        "phone": "+971502345678",  # Added UAE phone number
         "country": "ARE",
+        "is_test_seller": True,
     },
     {
         "username": "jane_smith",
         "email": "jane@example.com",
         "password": "jane123",
         "emirate_id": "784-1234-1234567-3",
+        "phone": "+971503456789",  # Added UAE phone number
         "country": "ARE",
     },
 ]
@@ -113,64 +117,70 @@ TEST_CATEGORIES = [
 ]
 
 
-async def create_users(user_controller: UserController, db: AsyncSession) -> List[dict]:
-    """
-    Create test users with randomized data.
-
-    Creates a mix of regular users with various attributes using Faker for data generation.
-    Each user is created with basic profile information and authentication credentials.
-
-    Args:
-        user_controller (UserController): Controller instance for user operations
-
-    Returns:
-        List[dict]: List of created users with their details including IDs and emails
-
-    Raises:
-        Exception: If user creation fails, with error details logged
-    """
-    log_section("Creating Users")
+async def create_users(
+        user_controller: UserController,
+        stripe_service: StripeService,
+        db: AsyncSession,
+) -> List[dict]:
+    """Create test users including admin and sellers with UAE-compliant details."""
     created_users = []
 
     for user_data in track(TEST_USERS, description="Creating users..."):
         try:
             is_admin = user_data.pop("is_admin", False)
+            is_test_seller = user_data.pop("is_test_seller", False)
             logger.info(f"Creating user: {user_data['email']}")
 
             # Create the user
-            # try:
             user = await user_controller.create_user(UserCreate(**user_data))
             logger.debug(f"User created with ID: {user.id}")
-            # except Exception as e:
-            #     logger.error(f"Failed to create user {user_data['email']}: {str(e)}")
-            #     raise e
-
-            # test = await user_controller.get_inactive_user(user.id)
-            # print("TEST : ", test)
 
             # Get the activation key using the internal method
-            activation_key = await user_controller._get_latest_active_activation_key(user.id)
+            activation_key = await user_controller._get_latest_active_activation_key(
+                user.id
+            )
             logger.debug(f"Got activation key for user: {user.email}")
 
             # Activate the user
             await user_controller.activate_user(user.id, activation_key)
             logger.info(f"Activated account for: {user.email}")
 
-
             if is_admin:
                 user = await user_controller.set_user_admin(user.id)
                 logger.info(f"Granted admin privileges to: {user.email}")
 
-            created_users.append(
-                {"id": user.id, "email": user.email, "is_admin": user.is_admin}
-            )
+            user_dict = {
+                "id": user.id,
+                "email": user.email,
+                "is_admin": getattr(user, "is_admin", False),
+            }
+
+            if is_test_seller:
+                try:
+                    # Create seller account with UAE compliance
+                    seller_account = await stripe_service.create_seller_account(
+                        user,
+                        with_onboarding=True
+                    )
+                    user_dict.update({
+                        "stripe_account_id": seller_account["account_id"],
+                        "stripe_verification_url": seller_account.get("verification_url"),
+                        "stripe_requirements": seller_account.get("requirements"),
+                    })
+                    logger.info(f"Created UAE-compliant Stripe account for seller: {user.email}")
+                except Exception as e:
+                    logger.error(f"Failed to create Stripe seller account: {str(e)}")
+                    # Continue with user creation even if Stripe account creation fails
+
+            created_users.append(user_dict)
             console.print(
-                f"[green]✓[/green] Created user: {user.email} ({'admin' if user.is_admin else 'user'})"
+                f"[green]✓[/green] Created user: {user.email} "
+                f"({'admin' if user.is_admin else 'seller' if is_test_seller else 'user'})"
             )
 
         except Exception as e:
             logger.error(f"Failed to create user {user_data['email']}: {str(e)}")
-            console.print(f"[red]✗[/red] Failed to create user: {user_data['email']}")
+            raise e
 
     return created_users
 
@@ -655,7 +665,9 @@ async def create_charity_contributions(
     return created_contributions
 
 
-async def create_bank_accounts(payment_controller: PaymentController, users: List[dict]) -> List[dict]:
+async def create_bank_accounts(
+    payment_controller: PaymentController, users: List[dict]
+) -> List[dict]:
     """
     Create test bank accounts for users.
 
@@ -675,31 +687,38 @@ async def create_bank_accounts(payment_controller: PaymentController, users: Lis
                 BankAccountCreate(
                     iban="AE070331234567890123456",
                     account_name=f"Account {user['email']}",
-                    account_number=f"000123456789",
+                    account_number="000123456789",
                     swift_code="TESTAEXX",
-                    is_primary=True
+                    is_primary=True,
                 ),
-                user["id"]
+                user["id"],
             )
-            created_bank_accounts.append({
-                "id": bank_account.id,
-                "user_id": user["id"],
-                "account_number": bank_account.account_number
-            })
+            created_bank_accounts.append(
+                {
+                    "id": bank_account.id,
+                    "user_id": user["id"],
+                    "account_number": bank_account.account_number,
+                }
+            )
             console.print(f"[green]✓[/green] Created bank account for: {user['email']}")
             logger.debug(f"Created bank account ID: {bank_account.id}")
 
         except Exception as e:
-            logger.error(f"Failed to create bank account for user {user['email']}: {str(e)}")
+            logger.error(
+                f"Failed to create bank account for user {user['email']}: {str(e)}"
+            )
             logger.exception(str(e))
-            console.print(f"[red]✗[/red] Failed to create bank account for: {user['email']}")
+            console.print(
+                f"[red]✗[/red] Failed to create bank account for: {user['email']}"
+            )
 
     return created_bank_accounts
+
 
 async def print_payment_example_from_data(
     created_data: dict,
     user_controller: UserController = None,
-    payment_controller: PaymentController = None
+    payment_controller: PaymentController = None,
 ):
     """
     Generate and print a sample payment creation payload using actual database data,
@@ -715,17 +734,23 @@ async def print_payment_example_from_data(
         return
 
     # Find an order where admin is the buyer
-    admin_order = next((order for order in created_data["orders"]
-                        if str(order["buyer_id"]) == str(admin_user["id"])), None)
+    admin_order = next(
+        (
+            order
+            for order in created_data["orders"]
+            if str(order["buyer_id"]) == str(admin_user["id"])
+        ),
+        None,
+    )
     if not admin_order:
         console.print("[red]No orders found for admin user[/red]")
         return
 
-    payment_example = {
-        "order_id": str(admin_order["id"])
-    }
+    payment_example = {"order_id": str(admin_order["id"])}
 
-    console.print("\n[bold yellow]═══════════════════════════════════════[/bold yellow]")
+    console.print(
+        "\n[bold yellow]═══════════════════════════════════════[/bold yellow]"
+    )
     console.print("[bold green]Payment Creation Example with Admin Order[/bold green]")
     console.print("[bold yellow]═══════════════════════════════════════[/bold yellow]")
     console.print("\nAdmin User Email:", admin_user["email"])
@@ -738,8 +763,7 @@ async def print_payment_example_from_data(
 
             # Create actual payment intent
             payment_intent = await payment_controller.create_payment_intent(
-                UUID(str(admin_order["id"])),
-                user
+                UUID(str(admin_order["id"])), user
             )
             console.print("\n[bold green]Created Payment Intent:[/bold green]")
             console.print("Client Secret:", payment_intent.client_secret)
@@ -748,14 +772,45 @@ async def print_payment_example_from_data(
             console.print(f"\n[red]Failed to create payment intent: {str(e)}[/red]")
             logger.error(f"Payment intent creation error: {str(e)}")
             import traceback
+
             logger.error(traceback.format_exc())
 
-    console.print("\nCopy this payload for Swagger POST /api/payments/create-payment-intent:")
+    console.print(
+        "\nCopy this payload for Swagger POST /api/payments/create-payment-intent:"
+    )
     console.print(json.dumps(payment_example, indent=2))
     console.print(
-        "\n[bold blue]Note:[/bold blue] This uses an actual order_id from your database created by the admin user")
+        "\n[bold blue]Note:[/bold blue] This uses an actual order_id from your database created by the admin user"
+    )
     console.print("[bold yellow]═══════════════════════════════════════[/bold yellow]")
 
+
+async def print_stripe_test_info(data: dict):
+    """Print UAE-specific Stripe test information."""
+    console.print("\n[bold yellow]Stripe Test Information[/bold yellow]")
+    console.print("\n[bold]Test Seller Accounts:[/bold]")
+
+    for user in data.get("users", []):
+        if "stripe_account_id" in user:
+            console.print(f"\nSeller Email: {user['email']}")
+            console.print(f"Stripe Account ID: {user['stripe_account_id']}")
+            if "stripe_verification_url" in user:
+                console.print(f"Verification URL: {user['stripe_verification_url']}")
+            if "stripe_requirements" in user:
+                console.print("\nRequired Verifications:")
+                for req, needed in user["stripe_requirements"].items():
+                    console.print(f"- {req}: {'Required' if needed else 'Optional'}")
+
+    console.print("\n[bold]UAE Test Cards:[/bold]")
+    console.print("Visa (Success): 4242 4242 4242 4242")
+    console.print("Visa (Decline): 4000 0000 0000 0002")
+    console.print("\n[bold]Test Emirates ID:[/bold]")
+    console.print("Format: 784-YYYY-NNNNNNN-C")
+    console.print("Example: 784-1234-1234567-1")
+
+    console.print("\n[bold]Test UAE Phone Numbers:[/bold]")
+    console.print("Format: +971XXXXXXXXX")
+    console.print("Example: +971501234567")
 
 async def create_data(db: AsyncSession, data_types: List[DataType] | None = None):
     """
@@ -811,7 +866,7 @@ async def create_data(db: AsyncSession, data_types: List[DataType] | None = None
         with console.status("[bold blue]Creating test data...") as status:
             if DataType.ALL in data_types or DataType.USERS in data_types:
                 status.update("[bold blue]Creating users...")
-                created_data["users"] = await create_users(user_controller, db)
+                created_data["users"] = await create_users(user_controller, stripe_service, db)
                 logger.info(f"Created {len(created_data['users'])} users")
 
                 # Add bank accounts creation right after users
@@ -819,7 +874,9 @@ async def create_data(db: AsyncSession, data_types: List[DataType] | None = None
                 created_data["bank_accounts"] = await create_bank_accounts(
                     payment_controller, created_data["users"]
                 )
-                logger.info(f"Created {len(created_data['bank_accounts'])} bank accounts")
+                logger.info(
+                    f"Created {len(created_data['bank_accounts'])} bank accounts"
+                )
 
             if DataType.ALL in data_types or DataType.CATEGORIES in data_types:
                 status.update("[bold blue]Creating categories...")
@@ -891,7 +948,10 @@ async def create_data(db: AsyncSession, data_types: List[DataType] | None = None
                 )
 
         logger.success("All test data created successfully")
-        await print_payment_example_from_data(created_data, user_controller, payment_controller)
+        await print_payment_example_from_data(
+            created_data, user_controller, payment_controller
+        )
+        print_stripe_test_info(created_data)
         return created_data
 
     except Exception as e:
@@ -958,7 +1018,9 @@ def init(
         enum_data_types = [DataType(dt.lower()) for dt in data_types]
     except ValueError:
         valid_types = ", ".join([t.value for t in DataType])
-        print(f"Error: Invalid data type. Valid types are: {valid_types}", file=sys.stderr)
+        print(
+            f"Error: Invalid data type. Valid types are: {valid_types}", file=sys.stderr
+        )
         print(traceback.format_exc(), file=sys.stderr)
         raise typer.Exit(1)
 
@@ -984,6 +1046,88 @@ def init(
         except Exception:
             raise
         await engine.dispose()
+
+    try:
+        asyncio.run(run())
+    except Exception as e:
+        console.print("\n[bold red]Error:[/bold red] " + str(e), highlight=False)
+        print(traceback.format_exc(), file=sys.stderr)
+        raise typer.Exit(1)
+
+
+@app.command()
+def init_stripe():
+    """Initialize only Stripe test seller account"""
+    logger.info("Starting Stripe test initialization")
+
+    async def run():
+        engine = await create_app_engine()
+        try:
+            await create_db_and_tables(engine)
+            logger.info("Database connection established")
+
+            async with AsyncSession(engine, expire_on_commit=False) as session:
+                settings = Settings()
+
+                # Initialize minimal required controllers
+                user_controller = UserController(
+                    session,
+                    settings.jwt_secret_key,
+                    settings.jwt_encryption_algorithm,
+                    settings.resend_api_key,
+                    settings.environment,
+                )
+                stripe_service = StripeService(
+                    session,
+                    settings.stripe_secret_key,
+                    settings.frontend_success_url,
+                    settings.frontend_cancel_url,
+                )
+
+                # Create test seller with UAE-compliant data
+                test_seller_data = {
+                    "username": "test_seller",
+                    "email": "souhib.t@hotmail.fr",
+                    "password": "seller123",
+                    "emirate_id": "784-1234-1234567-1",
+                    "phone": "+971501234567",  # Added UAE phone number
+                    "country": "ARE",
+                }
+
+                logger.info(f"Creating test seller: {test_seller_data['email']}")
+                seller = await user_controller.create_user(UserCreate(**test_seller_data))
+
+                logger.info(f"Activating test seller: {seller.email}")
+                activation_key = await user_controller._get_latest_active_activation_key(
+                    seller.id
+                )
+                await user_controller.activate_user(seller.id, activation_key)
+
+                # Create Stripe account with UAE compliance
+                logger.info("Creating UAE-compliant Stripe account for seller")
+                stripe_account = await stripe_service.create_seller_account(
+                    seller,
+                    with_onboarding=True
+                )
+
+                created_data = {
+                    "users": [{
+                        "id": seller.id,
+                        "email": seller.email,
+                        "stripe_account_id": stripe_account["account_id"],
+                        "stripe_verification_url": stripe_account.get("verification_url"),
+                        "stripe_requirements": stripe_account.get("requirements")
+                    }]
+                }
+
+                await print_stripe_test_info(created_data)
+                logger.info("Stripe test initialization completed successfully")
+
+        except Exception as e:
+            logger.error(f"Error during Stripe initialization: {str(e)}")
+            raise
+        finally:
+            await engine.dispose()
 
     try:
         asyncio.run(run())

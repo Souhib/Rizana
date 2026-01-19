@@ -8,14 +8,18 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from rizana.api.controllers.order import OrderController
 from rizana.api.models.stripe import PaymentIntentResponse
-from rizana.api.models.table import BillingAddress, PaymentMethod, User, BankAccount
+from rizana.api.models.table import BankAccount, BillingAddress, PaymentMethod, User
 from rizana.api.schemas.error import (
     BillingAddressCreationError,
     PaymentMethodCreationError,
     PaymentMethodDoesNotExist,
-    UserNotAllowed,
+    UserNotAllowed, BankAccountCreationError,
 )
-from rizana.api.schemas.payment import BillingAddressCreate, PaymentMethodCreate, BankAccountCreate
+from rizana.api.schemas.payment import (
+    BankAccountCreate,
+    BillingAddressCreate,
+    PaymentMethodCreate,
+)
 from rizana.api.services.stripe_service import StripeService
 
 
@@ -213,62 +217,6 @@ class PaymentController:
             )
         ).one()
 
-    # async def process_seller_payout(self, order: Order, payment_intent: dict) -> dict:
-    #     """
-    #     Traite le paiement au vendeur après une vente réussie
-    #     """
-    #     # Calculer le montant après commission
-    #     total_amount = order.total_price
-    #     platform_fee = total_amount * self.stripe_service.PLATFORM_FEE_PERCENTAGE
-    #     seller_amount = total_amount - platform_fee
-    #
-    #     # Récupérer les infos bancaires du vendeur
-    #     seller = await self.db.get(User, order.seller_id)
-    #     bank_info = json.loads(seller.bank_information)
-    #
-    #     metadata = {
-    #         "order_id": str(order.id),
-    #         "seller_id": str(seller.id),
-    #         "payment_intent_id": payment_intent["id"],
-    #         "original_amount": total_amount,
-    #         "platform_fee": platform_fee,
-    #     }
-    #
-    #     # Choisir le service de paiement selon le pays/montant
-    #     if self.should_use_wise(seller.country, seller_amount):
-    #         payout = await self.wise_service.create_transfer(
-    #             source_amount=seller_amount,
-    #             recipient_details={
-    #                 "profile_id": seller.wise_profile_id,
-    #                 "full_name": seller.full_name,
-    #                 "iban": bank_info["iban"],
-    #             },
-    #             reference=f"ORDER-{order.id}",
-    #         )
-    #     else:
-    #         payout = await self.stripe_service.create_direct_payout(
-    #             amount=seller_amount,
-    #             bank_account=bank_info,
-    #             currency=order.currency,
-    #             metadata=metadata,
-    #         )
-    #
-    #     # Enregistrer les détails du payout
-    #     payout_record = Payout(
-    #         order_id=order.id,
-    #         seller_id=seller.id,
-    #         amount=seller_amount,
-    #         currency=order.currency,
-    #         status=payout["status"],
-    #         provider=payout.get("provider", "stripe"),
-    #         provider_payout_id=payout["payout_id"],
-    #         metadata=metadata,
-    #     )
-    #     self.db.add(payout_record)
-    #     await self.db.commit()
-    #
-    #     return payout
-
     async def create_payment_intent(
         self, order_id: UUID, current_user: User
     ) -> PaymentIntentResponse:
@@ -282,7 +230,9 @@ class PaymentController:
         """Confirms a payment intent."""
         return await self.stripe_service.confirm_payment(payment_intent_id)
 
-    async def create_bank_account(self, bank_account: BankAccountCreate, user_id: UUID) -> BankAccount:
+    async def create_bank_account(
+        self, bank_account: BankAccountCreate, user_id: UUID
+    ) -> BankAccount:
         """
         Creates a bank account for a user.
 
@@ -304,8 +254,7 @@ class PaymentController:
                 # Set all existing bank accounts of the user to non-primary
                 existing_primary = await self.db.exec(
                     select(BankAccount).where(  # type: ignore
-                        BankAccount.user_id == user_id,
-                        BankAccount.is_primary == True
+                        BankAccount.user_id == user_id, BankAccount.is_primary is True
                     )
                 )
                 for account in existing_primary:

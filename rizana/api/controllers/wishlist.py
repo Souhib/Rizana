@@ -1,124 +1,135 @@
-from typing import Sequence
+from typing import List
 from uuid import UUID
 
-from sqlalchemy.exc import IntegrityError, NoResultFound
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from rizana.api.models.table import Item, User, Wish
+from rizana.api.models.table import Wish
 from rizana.api.schemas.error import (
-    ItemAlreadyInWishList,
-    ItemDoesNotExist,
-    UserCantAddHisOwnItemToWishlist,
-    WishDoesNotExists,
+    WishlistItemAlreadyExistsError,
+    WishlistItemNotFoundError,
+    WishlistItemNotOwnedError,
 )
-from rizana.api.schemas.wishlist import WishCreate
+from rizana.api.schemas.wishlist import WishCreate, WishUpdate
 
 
 class WishlistController:
-    """
-    Controller for managing user wishlists.
+    """Controller for managing wishlist operations."""
 
-    This class provides methods for creating, removing, and retrieving items from a user's wishlist.
-    """
-
-    def __init__(self, db: AsyncSession):
-        """
-        Initializes the WishlistController with a database session.
+    def __init__(self, session: AsyncSession):
+        """Initialize the controller with a database session.
 
         Args:
-            db (AsyncSession): The database session to use for operations.
+            session: The database session to use.
         """
-        self.db = db
+        self.session = session
 
-    async def create_wish(self, wish_create: WishCreate, current_user: User):
-        """
-        Adds an item to the current user's wishlist.
-
-        This method attempts to add an item to the current user's wishlist. If the item is already in the wishlist,
-        it raises an ItemAlreadyInWishList error. If the item does not exist, it raises an ItemDoesNotExist error.
-        If the current user is trying to add their own item to the wishlist, it raises a UserCantAddHisOwnItemToWishlist error.
+    async def get_by_id(self, wishlist_id: int, user_id: UUID) -> Wish:
+        """Get a wishlist item by ID.
 
         Args:
-            wish_create (WishCreate): The item to add to the wishlist.
-            current_user (User): The user adding the item to their wishlist.
+            wishlist_id: The ID of the wishlist item to retrieve.
+            user_id: The ID of the user making the request.
 
         Returns:
-            Wish: The newly created wishlist entry.
+            The wishlist item.
 
         Raises:
-            ItemAlreadyInWishList: If the item is already in the wishlist.
-            ItemDoesNotExist: If the item does not exist.
-            UserCantAddHisOwnItemToWishlist: If the current user is trying to add their own item to the wishlist.
+            WishlistItemNotFoundError: If the wishlist item is not found.
+            WishlistItemNotOwnedError: If the user doesn't own the wishlist item.
         """
-        try:
-            item = (
-                await self.db.exec(select(Item).where(Item.id == wish_create.item_id))
-            ).one()
-            if item.user_id == current_user.id:
-                raise UserCantAddHisOwnItemToWishlist(
-                    item_id=item.id, username=current_user.username
-                )
-            new_wish = Wish(user_id=current_user.id, item_id=wish_create.item_id)
-            self.db.add(new_wish)
-            await self.db.commit()
-            await self.db.refresh(new_wish)
-            return new_wish
-        except IntegrityError as e:
-            await self.db.rollback()
-            raise ItemAlreadyInWishList(
-                item_id=wish_create.item_id, user_id=wish_create.user_id
-            ) from e
-        except NoResultFound as e:
-            raise ItemDoesNotExist(item_id=wish_create.item_id) from e
+        result = await self.session.execute(
+            select(Wish).where(Wish.id == wishlist_id)
+        )
+        wish = result.scalar_one_or_none()
+        if not wish:
+            raise WishlistItemNotFoundError(wishlist_id)
+        if wish.user_id != user_id:
+            raise WishlistItemNotOwnedError(user_id, wishlist_id)
+        return wish
 
-    async def remove_wish(self, item_id: UUID, user_id: UUID):
-        """
-        Removes an item from a user's wishlist.
-
-        This method attempts to remove an item from a user's wishlist. If the item does not exist in the wishlist,
-        it raises a WishDoesNotExists error.
+    async def get_by_user(self, user_id: UUID, skip: int = 0, limit: int = 100) -> List[Wish]:
+        """Get wishlist items for a user.
 
         Args:
-            item_id (UUID): The ID of the item to remove from the wishlist.
-            user_id (UUID): The ID of the user whose wishlist to modify.
-
-        Raises:
-            WishDoesNotExists: If the item does not exist in the wishlist.
-        """
-        try:
-            wish = (
-                await self.db.exec(
-                    select(Wish)
-                    .where(Wish.user_id == user_id)
-                    .where(Wish.item_id == item_id)
-                )
-            ).one()
-            await self.db.delete(wish)
-            await self.db.commit()
-        except NoResultFound:
-            raise WishDoesNotExists(item_id=item_id, user_id=user_id)
-        except Exception as e:
-            await self.db.rollback()
-            raise e
-
-    async def get_wishlist(self, user_id: UUID) -> Sequence[Item]:
-        """
-        Retrieves the items in a user's wishlist.
-
-        This method fetches all items in a user's wishlist.
-
-        Args:
-            user_id (UUID): The ID of the user whose wishlist to retrieve.
+            user_id: The ID of the user.
+            skip: Number of items to skip.
+            limit: Maximum number of items to return.
 
         Returns:
-            list[Item]: A list of items in the user's wishlist.
+            List of wishlist items.
         """
-        return (
-            await self.db.exec(
-                select(Item)
-                .join(Wish)
-                .where(Item.id == Wish.item_id)
-                .where(Wish.user_id == user_id)
+        result = await self.session.execute(
+            select(Wish)
+            .where(Wish.user_id == user_id)
+            .offset(skip)
+            .limit(limit)
+        )
+        return result.scalars().all()
+
+    async def create(self, wish_create: WishCreate, user_id: UUID) -> Wish:
+        """Create a new wishlist item.
+
+        Args:
+            wish_create: The wishlist item data.
+            user_id: The ID of the user creating the wishlist item.
+
+        Returns:
+            The created wishlist item.
+
+        Raises:
+            WishlistItemAlreadyExistsError: If the wishlist item already exists.
+        """
+        # Check if item already exists in wishlist
+        result = await self.session.execute(
+            select(Wish).where(
+                Wish.user_id == user_id,
+                Wish.item_id == wish_create.item_id
             )
-        ).all()
+        )
+        if result.scalar_one_or_none():
+            raise WishlistItemAlreadyExistsError(user_id, wish_create.item_id)
+
+        wish = Wish(**wish_create.dict(), user_id=user_id)
+        self.session.add(wish)
+        await self.session.commit()
+        await self.session.refresh(wish)
+        return wish
+
+    async def update(self, wishlist_id: int, wish_update: WishUpdate, user_id: UUID) -> Wish:
+        """Update a wishlist item.
+
+        Args:
+            wishlist_id: The ID of the wishlist item to update.
+            wish_update: The updated wishlist item data.
+            user_id: The ID of the user updating the wishlist item.
+
+        Returns:
+            The updated wishlist item.
+
+        Raises:
+            WishlistItemNotFoundError: If the wishlist item is not found.
+            WishlistItemNotOwnedError: If the user doesn't own the wishlist item.
+        """
+        wish = await self.get_by_id(wishlist_id, user_id)
+        for field, value in wish_update.dict(exclude_unset=True).items():
+            setattr(wish, field, value)
+        self.session.add(wish)
+        await self.session.commit()
+        await self.session.refresh(wish)
+        return wish
+
+    async def delete(self, wishlist_id: int, user_id: UUID) -> None:
+        """Delete a wishlist item.
+
+        Args:
+            wishlist_id: The ID of the wishlist item to delete.
+            user_id: The ID of the user deleting the wishlist item.
+
+        Raises:
+            WishlistItemNotFoundError: If the wishlist item is not found.
+            WishlistItemNotOwnedError: If the user doesn't own the wishlist item.
+        """
+        wish = await self.get_by_id(wishlist_id, user_id)
+        await self.session.delete(wish)
+        await self.session.commit()

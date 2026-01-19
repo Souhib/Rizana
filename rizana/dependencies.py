@@ -109,7 +109,10 @@ async def get_item_controller(
     return ItemController(session)
 
 
-async def get_stripe_service(settings: Settings = Depends(get_settings), session: AsyncSession = Depends(get_session)):
+async def get_stripe_service(
+    settings: Settings = Depends(get_settings),
+    session: AsyncSession = Depends(get_session),
+):
     return StripeService(
         session,
         settings.stripe_secret_key,

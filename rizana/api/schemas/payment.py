@@ -1,7 +1,11 @@
 import pydantic
 
 from rizana.api.models.order import CharityContributionBase
-from rizana.api.models.payment import BillingAddressBase, PaymentMethodBase, BankAccountBase
+from rizana.api.models.payment import (
+    BankAccountBase,
+    BillingAddressBase,
+    PaymentMethodBase,
+)
 
 
 class PaymentMethodCreate(PaymentMethodBase):

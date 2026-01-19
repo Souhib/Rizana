@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Rizana Payment Test</title>
+    <script src="https://js.stripe.com/v3/"></script>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            background-color: #f7f7f7;
+        }
+
+        .container {
+            background-color: white;
+            padding: 2rem;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            width: 100%;
+            max-width: 400px;
+        }
+
+        h1 {
+            color: #2d3748;
+            margin-bottom: 1.5rem;
+            text-align: center;
+        }
+
+        .input-group {
+            margin-bottom: 1rem;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 0.5rem;
+            color: #4a5568;
+        }
+
+        input {
+            width: 100%;
+            padding: 0.5rem;
+            border: 1px solid #cbd5e0;
+            border-radius: 4px;
+            font-size: 1rem;
+        }
+
+        #card-element {
+            padding: 1rem;
+            border: 1px solid #cbd5e0;
+            border-radius: 4px;
+            background-color: white;
+        }
+
+        button {
+            background-color: #4299e1;
+            color: white;
+            padding: 0.75rem 1.5rem;
+            border: none;
+            border-radius: 4px;
+            width: 100%;
+            font-size: 1rem;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+
+        button:hover {
+            background-color: #3182ce;
+        }
+
+        button:disabled {
+            background-color: #a0aec0;
+            cursor: not-allowed;
+        }
+
+        #payment-status {
+            margin-top: 1rem;
+            text-align: center;
+            font-weight: bold;
+        }
+
+        .success {
+            color: #48bb78;
+        }
+
+        .error {
+            color: #e53e3e;
+        }
+
+        #login-section, #payment-section {
+            margin-bottom: 2rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Rizana Payment Test</h1>
+
+        <!-- Login Section -->
+        <div id="login-section">
+            <div class="input-group">
+                <label for="email">Email</label>
+                <input type="email" id="email" value="admin@example.com">
+            </div>
+            <div class="input-group">
+                <label for="password">Password</label>
+                <input type="password" id="password" value="admin123">
+            </div>
+            <button id="login-button">Login</button>
+        </div>
+
+        <!-- Payment Section -->
+        <div id="payment-section" style="display: none;">
+            <div class="input-group">
+                <label for="clientSecret">Client Secret</label>
+                <input type="text" id="clientSecret" placeholder="Enter client secret">
+            </div>
+
+            <div class="input-group">
+                <label for="paymentIntentId">Payment Intent ID</label>
+                <input type="text" id="paymentIntentId" placeholder="Enter payment intent ID">
+            </div>
+
+            <div class="input-group">
+                <label>Card Details</label>
+                <div id="card-element"></div>
+            </div>
+
+            <button id="submit-button" disabled>Pay Now</button>
+        </div>
+        <div id="payment-status"></div>
+    </div>
+
+    <script>
+        // Initialize Stripe
+        const stripe = Stripe('pk_test_51R2qjtPX2kQB9S7Jxly9mZBuw5c10OYCEdF3pZEj6rTFA6x4JXGXbe2uUXk76CpkSDaKvIVlQMpHWWc9h9eNuwrK00fNQvgxw4');
+        const elements = stripe.elements();
+        const card = elements.create('card');
+
+        let accessToken = null;
+
+        const clientSecretInput = document.getElementById('clientSecret');
+        const paymentIntentIdInput = document.getElementById('paymentIntentId');
+        const submitButton = document.getElementById('submit-button');
+        const paymentStatus = document.getElementById('payment-status');
+
+        // Login function
+        async function login() {
+            const email = document.getElementById('email').value;
+            const password = document.getElementById('password').value;
+
+            try {
+                const response = await fetch('/users/login', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded'
+                    },
+                    body: `username=${encodeURIComponent(email)}&password=${encodeURIComponent(password)}`
+                });
+
+                if (!response.ok) {
+                    throw new Error('Login failed');
+                }
+
+                const data = await response.json();
+                accessToken = data.access_token;
+
+                // Hide login, show payment section
+                document.getElementById('login-section').style.display = 'none';
+                document.getElementById('payment-section').style.display = 'block';
+                card.mount('#card-element');
+
+                paymentStatus.textContent = 'Logged in successfully';
+                paymentStatus.className = 'success';
+            } catch (error) {
+                paymentStatus.textContent = `Login error: ${error.message}`;
+                paymentStatus.className = 'error';
+            }
+        }
+
+        // Add login button listener
+        document.getElementById('login-button').addEventListener('click', login);
+
+        // Backend confirmation function
+        async function confirmWithBackend(paymentIntentId) {
+            if (!accessToken) {
+                throw new Error('Not authenticated');
+            }
+
+            const response = await fetch(`/payment-methods/confirm-payment-intent/${paymentIntentId}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${accessToken}`
+                }
+            });
+
+            if (!response.ok) {
+                throw new Error(`Backend confirmation failed: ${response.statusText}`);
+            }
+
+            return await response.json();
+        }
+
+        // Enable submit button when both inputs have values
+        function checkInputs() {
+            submitButton.disabled = !clientSecretInput.value || !paymentIntentIdInput.value;
+        }
+
+        clientSecretInput.addEventListener('input', checkInputs);
+        paymentIntentIdInput.addEventListener('input', checkInputs);
+
+        // Handle payment submission
+        submitButton.addEventListener('click', async (e) => {
+            e.preventDefault();
+            submitButton.disabled = true;
+            paymentStatus.textContent = 'Processing payment...';
+
+            try {
+                if (!accessToken) {
+                    throw new Error('Please login first');
+                }
+
+                // First confirm with Stripe
+                const stripeResult = await stripe.confirmCardPayment(clientSecretInput.value, {
+                    payment_method: {
+                        card: card,
+                    }
+                });
+
+                if (stripeResult.error) {
+                    paymentStatus.textContent = stripeResult.error.message;
+                    paymentStatus.className = 'error';
+                    return;
+                }
+
+                if (stripeResult.paymentIntent.status === 'succeeded') {
+                    // Then confirm with our backend
+                    try {
+                        await confirmWithBackend(paymentIntentIdInput.value);
+                        paymentStatus.textContent = 'Payment successful and confirmed with backend!';
+                        paymentStatus.className = 'success';
+                    } catch (backendError) {
+                        paymentStatus.textContent = `Stripe payment succeeded but backend confirmation failed: ${backendError.message}`;
+                        paymentStatus.className = 'error';
+                    }
+                }
+            } catch (error) {
+                paymentStatus.textContent = error.message;
+                paymentStatus.className = 'error';
+            }
+
+            submitButton.disabled = false;
+        });
+    </script>
+</body>
+</html>
